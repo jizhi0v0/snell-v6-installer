@@ -56,6 +56,18 @@ The script can auto-install `curl` and `unzip` on `apt`, `dnf`, and `yum` system
 
 ## Quick start
 
+Install or update with one command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | sudo bash
+```
+
+Install a specific version with one command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | sudo VERSION=v6.0.0b2 bash
+```
+
 If you are running from a cloned repo:
 
 ```bash
@@ -147,6 +159,20 @@ To roll back manually, repoint the symlink to an older binary and restart the se
 ```bash
 sudo ln -sfn /opt/snell/releases/snell-server-v6.0.0b2 /opt/snell/bin/snell-server-v6
 sudo systemctl restart snell-v6
+```
+
+## Uninstall
+
+Uninstall with one command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6-uninstall.sh | sudo bash
+```
+
+Keep `/opt/snell` while removing the service:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6-uninstall.sh | sudo PRESERVE_CONFIG=1 bash
 ```
 
 ## Notes

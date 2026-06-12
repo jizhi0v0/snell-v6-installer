@@ -259,6 +259,24 @@ resolve_version() {
   extract_version_from_url "${url}"
 }
 
+validate_release_binary() {
+  local binary_path="$1"
+  local output
+
+  if command -v ldd >/dev/null 2>&1; then
+    output="$(ldd "${binary_path}" 2>&1 || true)"
+    if grep -q 'not found' <<<"${output}"; then
+      printf '%s\n' "${output}" >&2
+      die "missing shared libraries for ${binary_path}; try the latest beta/stable build, or install the missing OS packages"
+    fi
+  fi
+
+  if ! output="$("${binary_path}" --version 2>&1)"; then
+    printf '%s\n' "${output}" >&2
+    die "downloaded binary cannot run on this host; check VERSION and ARCH"
+  fi
+}
+
 ensure_download_available() {
   local url="$1"
   local version="$2"
@@ -376,6 +394,7 @@ download_and_install_release() {
 
     install -d -m 755 "${RELEASES_DIR}" "${BIN_DIR}" "${CONF_DIR}"
     install -m 755 "${tmpdir}/snell-server" "${release_path}"
+    validate_release_binary "${release_path}"
     ln -sfn "${release_path}" "${CURRENT_BIN}"
   )
 }

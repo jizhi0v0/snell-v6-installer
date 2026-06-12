@@ -30,6 +30,7 @@ AUTO_INSTALL_DEPS="${AUTO_INSTALL_DEPS:-1}"
 MANAGE_FIREWALL="${MANAGE_FIREWALL:-auto}"
 CONFIG_OVERWRITE="${CONFIG_OVERWRITE:-0}"
 ALLOW_DOWNGRADE="${ALLOW_DOWNGRADE:-0}"
+ASSUME_YES="${ASSUME_YES:-0}"
 
 ACTION="${1:-apply}"
 
@@ -69,6 +70,7 @@ Environment variables:
   EGRESS_INTERFACE=eth0
   CONFIG_OVERWRITE=1       Rewrite the config file on update.
   ALLOW_DOWNGRADE=0        Refuse automatic downgrades by default.
+  ASSUME_YES=0             Prompt before install/update. Set to 1 for automation.
   MANAGE_FIREWALL=auto     Add an allow rule when ufw exists.
   AUTO_INSTALL_DEPS=1      Install curl/unzip when apt/dnf/yum is available.
 EOF
@@ -114,6 +116,17 @@ normalize_arch() {
 }
 
 ARCH="$(normalize_arch "${ARCH:-auto}")"
+
+is_truthy() {
+  case "${1:-}" in
+    1|true|yes|y|on)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
 
 install_deps() {
   local missing=0
@@ -268,12 +281,38 @@ resolve_version() {
 current_installed_version() {
   local resolved=""
 
-  if [[ -e "${CURRENT_BIN}" ]]; then
-    resolved="$(readlink -f "${CURRENT_BIN}" 2>/dev/null || true)"
-  fi
+  resolved="$(current_installed_path)"
 
   [[ -n "${resolved}" ]] || return 0
   extract_version_from_url "${resolved}"
+}
+
+current_installed_path() {
+  if [[ -e "${CURRENT_BIN}" ]]; then
+    readlink -f "${CURRENT_BIN}" 2>/dev/null || true
+  fi
+}
+
+version_relation() {
+  local installed_version="$1"
+  local target_version="$2"
+  local installed_key target_key
+
+  if [[ -z "${installed_version}" ]]; then
+    printf 'install\n'
+    return 0
+  fi
+
+  installed_key="$(version_sort_key "${installed_version}")"
+  target_key="$(version_sort_key "${target_version}")"
+
+  if [[ "${target_key}" < "${installed_key}" ]]; then
+    printf 'downgrade\n'
+  elif [[ "${target_key}" > "${installed_key}" ]]; then
+    printf 'update\n'
+  else
+    printf 'reinstall\n'
+  fi
 }
 
 ensure_not_downgrade() {
@@ -287,10 +326,61 @@ ensure_not_downgrade() {
   installed_key="$(version_sort_key "${installed_version}")"
 
   if [[ "${target_key}" < "${installed_key}" ]] \
-    && [[ "${ALLOW_DOWNGRADE}" != "1" ]] \
-    && [[ "${ALLOW_DOWNGRADE}" != "true" ]] \
-    && [[ "${ALLOW_DOWNGRADE}" != "yes" ]]; then
+    && ! is_truthy "${ALLOW_DOWNGRADE}"; then
     die "refusing to downgrade from ${installed_version} to ${target_version}; set ALLOW_DOWNGRADE=1 to override"
+  fi
+}
+
+confirm_apply() {
+  local target_version="$1"
+  local url="$2"
+  local installed_path installed_version installed_display relation answer
+
+  if is_truthy "${ASSUME_YES}"; then
+    return 0
+  fi
+
+  installed_path="$(current_installed_path)"
+  installed_version="$(current_installed_version)"
+
+  if [[ -n "${installed_version}" ]]; then
+    installed_display="${installed_version}"
+  elif [[ -n "${installed_path}" ]]; then
+    installed_display="unknown (${installed_path})"
+  else
+    installed_display="not installed"
+  fi
+
+  if [[ -n "${installed_version}" ]]; then
+    relation="$(version_relation "${installed_version}" "${target_version}")"
+  elif [[ -n "${installed_path}" ]]; then
+    relation="unknown"
+  else
+    relation="install"
+  fi
+
+  if ! { exec 3<>/dev/tty; } 2>/dev/null; then
+    die "confirmation requires a TTY; set ASSUME_YES=1 for non-interactive use"
+  fi
+
+  {
+    printf '\nSnell v6 install plan:\n'
+    printf '  Action: %s\n' "${relation}"
+    printf '  CPU arch: %s\n' "${ARCH}"
+    printf '  Installed version: %s\n' "${installed_display}"
+    printf '  Target version: %s\n' "${target_version}"
+    printf '  Download URL: %s\n' "${url}"
+    printf '  Binary symlink: %s\n' "${CURRENT_BIN}"
+    printf '  Config file: %s\n' "${CONFIG_FILE}"
+    printf '  Service: %s\n' "${SERVICE_NAME}"
+    printf '\nProceed? [y/N] '
+  } >&3
+
+  IFS= read -r answer <&3 || answer=""
+  exec 3>&- 3<&-
+
+  if [[ "${answer}" != "y" && "${answer}" != "Y" && "${answer}" != "yes" && "${answer}" != "YES" ]]; then
+    die "cancelled by user"
   fi
 }
 
@@ -512,6 +602,7 @@ apply() {
   version="$(resolve_version "${url}")"
   ensure_download_available "${url}" "${version}"
   ensure_not_downgrade "${version}"
+  confirm_apply "${version}" "${url}"
 
   ensure_service_user
   download_and_install_release "${url}" "${version}"

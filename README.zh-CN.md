@@ -31,10 +31,18 @@
 curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | sudo bash
 ```
 
+安装器会在修改服务前进行确认，并显示检测到的 CPU 架构、当前已安装版本、目标版本和下载 URL。如果当前版本解析不到，会显示 `unknown`。
+
 指定安装 `v6.0.0b2`：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | sudo env VERSION=v6.0.0b2 bash
+```
+
+无人值守执行时：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | sudo env ASSUME_YES=1 VERSION=v6.0.0b2 bash
 ```
 
 ## 版本
@@ -155,6 +163,12 @@ sudo env DNS_IP_PREFERENCE=prefer-ipv4 ./snell-v6.sh
 
 ```bash
 sudo env VERSION=v6.0.0b2 ALLOW_DOWNGRADE=1 ./snell-v6.sh
+```
+
+跳过交互确认：
+
+```bash
+sudo env ASSUME_YES=1 VERSION=v6.0.0b2 ./snell-v6.sh
 ```
 
 ## 卸载

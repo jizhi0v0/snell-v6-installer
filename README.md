@@ -66,10 +66,18 @@ Install or update with one command:
 curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | sudo bash
 ```
 
+The installer prompts before changing the service. It shows the detected CPU architecture, current installed version when available, target version, and download URL.
+
 Install a specific version with one command:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | sudo env VERSION=v6.0.0b2 bash
+```
+
+Run without an interactive confirmation:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | sudo env ASSUME_YES=1 VERSION=v6.0.0b2 bash
 ```
 
 If you are running from a cloned repo:
@@ -159,6 +167,12 @@ Allow an intentional downgrade:
 
 ```bash
 sudo env VERSION=v6.0.0b2 ALLOW_DOWNGRADE=1 ./snell-v6.sh
+```
+
+Skip the confirmation prompt for automation:
+
+```bash
+sudo env ASSUME_YES=1 VERSION=v6.0.0b2 ./snell-v6.sh
 ```
 
 ## Installed paths

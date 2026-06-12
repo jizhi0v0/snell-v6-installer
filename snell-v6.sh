@@ -29,6 +29,7 @@ EGRESS_INTERFACE="${EGRESS_INTERFACE:-}"
 AUTO_INSTALL_DEPS="${AUTO_INSTALL_DEPS:-1}"
 MANAGE_FIREWALL="${MANAGE_FIREWALL:-auto}"
 CONFIG_OVERWRITE="${CONFIG_OVERWRITE:-0}"
+ALLOW_DOWNGRADE="${ALLOW_DOWNGRADE:-0}"
 
 ACTION="${1:-apply}"
 
@@ -44,12 +45,13 @@ die() {
 usage() {
   cat <<'EOF'
 Usage:
-  sudo ./snell-v6.sh [apply|latest|arches|download-url|help]
+  sudo ./snell-v6.sh [apply|latest|arches|installed|download-url|help]
 
 Actions:
   apply         Install or update Snell v6. Default action.
   latest        Print the latest detected Snell v6 version for the current arch.
   arches        Print available CPU architectures for VERSION, or latest v6.
+  installed     Print the currently installed version, if detected.
   download-url  Print the resolved download URL for VERSION/current arch.
   help          Show this help.
 
@@ -66,6 +68,7 @@ Environment variables:
   DNS_SERVERS=1.1.1.1,8.8.8.8
   EGRESS_INTERFACE=eth0
   CONFIG_OVERWRITE=1       Rewrite the config file on update.
+  ALLOW_DOWNGRADE=0        Refuse automatic downgrades by default.
   MANAGE_FIREWALL=auto     Add an allow rule when ufw exists.
   AUTO_INSTALL_DEPS=1      Install curl/unzip when apt/dnf/yum is available.
 EOF
@@ -145,7 +148,10 @@ install_deps() {
 
 extract_version_from_url() {
   local url="$1"
-  sed -n 's#.*snell-server-\(v[0-9][^-/]*\)-linux-.*#\1#p' <<<"${url}"
+  sed -n \
+    -e 's#.*snell-server-\(v[0-9][^-/]*\)-linux-.*#\1#p' \
+    -e 's#.*snell-server-\(v[0-9][^-/]*\)$#\1#p' \
+    <<<"${url}"
 }
 
 version_sort_key() {
@@ -257,6 +263,35 @@ resolve_download_url() {
 resolve_version() {
   local url="$1"
   extract_version_from_url "${url}"
+}
+
+current_installed_version() {
+  local resolved=""
+
+  if [[ -e "${CURRENT_BIN}" ]]; then
+    resolved="$(readlink -f "${CURRENT_BIN}" 2>/dev/null || true)"
+  fi
+
+  [[ -n "${resolved}" ]] || return 0
+  extract_version_from_url "${resolved}"
+}
+
+ensure_not_downgrade() {
+  local target_version="$1"
+  local installed_version target_key installed_key
+
+  installed_version="$(current_installed_version)"
+  [[ -n "${installed_version}" ]] || return 0
+
+  target_key="$(version_sort_key "${target_version}")"
+  installed_key="$(version_sort_key "${installed_version}")"
+
+  if [[ "${target_key}" < "${installed_key}" ]] \
+    && [[ "${ALLOW_DOWNGRADE}" != "1" ]] \
+    && [[ "${ALLOW_DOWNGRADE}" != "true" ]] \
+    && [[ "${ALLOW_DOWNGRADE}" != "yes" ]]; then
+    die "refusing to downgrade from ${installed_version} to ${target_version}; set ALLOW_DOWNGRADE=1 to override"
+  fi
 }
 
 validate_release_binary() {
@@ -476,6 +511,7 @@ apply() {
   url="$(resolve_download_url)"
   version="$(resolve_version "${url}")"
   ensure_download_available "${url}" "${version}"
+  ensure_not_downgrade "${version}"
 
   ensure_service_user
   download_and_install_release "${url}" "${version}"
@@ -495,6 +531,9 @@ case "${ACTION}" in
     ;;
   arches)
     available_arches
+    ;;
+  installed)
+    current_installed_version
     ;;
   download-url)
     resolve_download_url

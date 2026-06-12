@@ -29,6 +29,8 @@ The script supports both beta and stable Snell v6 naming:
 
 If `VERSION` is omitted, the script fetches the official Snell release notes and resolves the latest available `v6` build for the current CPU architecture.
 
+The automatic resolver only considers downloads available for the current CPU architecture. It also refuses downgrades by default when `/opt/snell/bin/snell-server-v6` already points to a higher version. For multi-server deployments, pin `VERSION` explicitly so every server uses the same Snell build.
+
 ## CPU architecture
 
 The script detects the current CPU automatically. You can also override it with `ARCH`:
@@ -135,6 +137,12 @@ Print the latest detected Snell v6 version:
 ./snell-v6.sh latest
 ```
 
+Print the currently installed version:
+
+```bash
+./snell-v6.sh installed
+```
+
 Print the CPU architectures available for a version:
 
 ```bash
@@ -145,6 +153,12 @@ Print the resolved download URL:
 
 ```bash
 ./snell-v6.sh download-url
+```
+
+Allow an intentional downgrade:
+
+```bash
+sudo env VERSION=v6.0.0b2 ALLOW_DOWNGRADE=1 ./snell-v6.sh
 ```
 
 ## Installed paths

@@ -46,6 +46,8 @@ curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/sn
 
 如果不指定 `VERSION`，脚本会从官方 Snell release notes 中自动解析当前 CPU 架构可用的最新 `v6` 版本。
 
+自动解析只会考虑当前 CPU 架构可下载的包。如果 `/opt/snell/bin/snell-server-v6` 已经指向更高版本，脚本默认会拒绝降级。多台服务器批量部署时，建议显式指定 `VERSION`，确保所有服务器使用同一个 Snell 构建。
+
 ## CPU 架构
 
 默认会自动读取当前机器架构。也可以用 `ARCH` 手动指定：
@@ -137,10 +139,22 @@ sudo env DNS_IP_PREFERENCE=prefer-ipv4 ./snell-v6.sh
 ./snell-v6.sh latest
 ```
 
+查看当前已安装版本：
+
+```bash
+./snell-v6.sh installed
+```
+
 查看下载 URL：
 
 ```bash
 ./snell-v6.sh download-url
+```
+
+有意降级时：
+
+```bash
+sudo env VERSION=v6.0.0b2 ALLOW_DOWNGRADE=1 ./snell-v6.sh
 ```
 
 ## 卸载

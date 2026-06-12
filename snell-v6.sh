@@ -58,7 +58,7 @@ Environment variables:
   VERSION=v6.0.0b2         Install a specific beta build.
   VERSION=v6.0.0           Install a specific stable build.
   ARCH=auto                 Detect CPU arch automatically.
-  ARCH=amd64                Override CPU arch. Also accepts x86_64, i386, arm64, aarch64.
+  ARCH=amd64                Override CPU arch. Also accepts x86_64, i386, arm64, aarch64, armv7l.
   PORT=7177                Default listen port for first install only.
   LISTEN=0.0.0.0:7177      Override the generated listen line for first install.
   PSK=...                  Override the generated PSK for first install.
@@ -289,8 +289,7 @@ ensure_download_available() {
 }
 
 random_psk() {
-  tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32
-  printf '\n'
+  od -An -N16 -tx1 /dev/urandom | tr -d ' \n'
 }
 
 ensure_service_user() {
@@ -304,6 +303,12 @@ ensure_service_user() {
   fi
 }
 
+ensure_config_permissions() {
+  [[ -f "${CONFIG_FILE}" ]] || return 0
+  chown "root:${RUN_GROUP}" "${CONFIG_FILE}"
+  chmod 640 "${CONFIG_FILE}"
+}
+
 write_config() {
   local created=0
   local final_listen="${LISTEN}"
@@ -311,6 +316,7 @@ write_config() {
   local tmp
 
   if [[ -f "${CONFIG_FILE}" && "${CONFIG_OVERWRITE}" != "1" ]]; then
+    ensure_config_permissions
     return 0
   fi
 
@@ -332,7 +338,7 @@ write_config() {
   } >"${tmp}"
 
   install -d -m 755 "${CONF_DIR}"
-  install -m 600 "${tmp}" "${CONFIG_FILE}"
+  install -m 640 -o root -g "${RUN_GROUP}" "${tmp}" "${CONFIG_FILE}"
   rm -f "${tmp}"
   created=1
 

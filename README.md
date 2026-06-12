@@ -1,5 +1,7 @@
 # Snell v6 Installer
 
+[中文说明](README.zh-CN.md)
+
 This repository contains a single script for first-time Snell v6 deployment and later upgrades on a Linux VPS with `systemd`.
 
 It keeps the runtime path stable at `/opt/snell/bin/snell-server-v6`, while storing real binaries under `/opt/snell/releases/`. That gives you easy upgrades and easy rollbacks without overwriting the old binary in place.
@@ -65,7 +67,7 @@ curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/sn
 Install a specific version with one command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | sudo VERSION=v6.0.0b2 bash
+curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | sudo env VERSION=v6.0.0b2 bash
 ```
 
 If you are running from a cloned repo:
@@ -86,45 +88,45 @@ sudo ./snell-v6.sh
 Install a specific beta:
 
 ```bash
-sudo VERSION=v6.0.0b2 ./snell-v6.sh
+sudo env VERSION=v6.0.0b2 ./snell-v6.sh
 ```
 
 Install a specific beta for a specific CPU:
 
 ```bash
-sudo VERSION=v6.0.0b2 ARCH=amd64 ./snell-v6.sh
-sudo VERSION=v6.0.0b2 ARCH=i386 ./snell-v6.sh
-sudo VERSION=v6.0.0b2 ARCH=aarch64 ./snell-v6.sh
+sudo env VERSION=v6.0.0b2 ARCH=amd64 ./snell-v6.sh
+sudo env VERSION=v6.0.0b2 ARCH=i386 ./snell-v6.sh
+sudo env VERSION=v6.0.0b2 ARCH=aarch64 ./snell-v6.sh
 ```
 
 Install a future stable build:
 
 ```bash
-sudo VERSION=v6.0.0 ./snell-v6.sh
+sudo env VERSION=v6.0.0 ./snell-v6.sh
 ```
 
 Set a custom first-install port and PSK:
 
 ```bash
-sudo PORT=7177 PSK='replace-with-your-own-psk' ./snell-v6.sh
+sudo env PORT=7177 PSK='replace-with-your-own-psk' ./snell-v6.sh
 ```
 
 Set dual-stack listen explicitly:
 
 ```bash
-sudo LISTEN='0.0.0.0:7177,[::]:7177' ./snell-v6.sh
+sudo env LISTEN='0.0.0.0:7177,[::]:7177' ./snell-v6.sh
 ```
 
 Prefer IPv4 for DNS results:
 
 ```bash
-sudo DNS_IP_PREFERENCE=prefer-ipv4 ./snell-v6.sh
+sudo env DNS_IP_PREFERENCE=prefer-ipv4 ./snell-v6.sh
 ```
 
 Rewrite the config during an upgrade:
 
 ```bash
-sudo CONFIG_OVERWRITE=1 LISTEN='0.0.0.0:7177,[::]:7177' ./snell-v6.sh
+sudo env CONFIG_OVERWRITE=1 LISTEN='0.0.0.0:7177,[::]:7177' ./snell-v6.sh
 ```
 
 Print the latest detected Snell v6 version:
@@ -172,7 +174,7 @@ curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/sn
 Keep `/opt/snell` while removing the service:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6-uninstall.sh | sudo PRESERVE_CONFIG=1 bash
+curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6-uninstall.sh | sudo env PRESERVE_CONFIG=1 bash
 ```
 
 ## Notes

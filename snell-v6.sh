@@ -355,8 +355,14 @@ configured_port() {
 
 restart_service() {
   systemctl daemon-reload
-  systemctl enable --now "${SERVICE_NAME}"
-  systemctl restart "${SERVICE_NAME}"
+  systemctl enable "${SERVICE_NAME}" >/dev/null
+  systemctl reset-failed "${SERVICE_NAME}" >/dev/null 2>&1 || true
+
+  if systemctl is-active --quiet "${SERVICE_NAME}"; then
+    systemctl restart "${SERVICE_NAME}"
+  else
+    systemctl start "${SERVICE_NAME}"
+  fi
 }
 
 show_summary() {

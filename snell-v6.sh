@@ -300,20 +300,19 @@ download_and_install_release() {
   tmpdir="$(mktemp -d)"
   release_path="${RELEASES_DIR}/snell-server-${version}"
 
-  cleanup_tmpdir() {
-    rm -rf "${tmpdir}"
-  }
-  trap cleanup_tmpdir RETURN
+  (
+    trap 'rm -rf -- "$tmpdir"' EXIT
 
-  log "downloading ${url}"
-  curl -fsSL -o "${tmpdir}/snell.zip" "${url}"
-  unzip -oq "${tmpdir}/snell.zip" -d "${tmpdir}"
+    log "downloading ${url}"
+    curl -fsSL -o "${tmpdir}/snell.zip" "${url}"
+    unzip -oq "${tmpdir}/snell.zip" -d "${tmpdir}"
 
-  [[ -f "${tmpdir}/snell-server" ]] || die "downloaded archive did not contain snell-server"
+    [[ -f "${tmpdir}/snell-server" ]] || die "downloaded archive did not contain snell-server"
 
-  install -d -m 755 "${RELEASES_DIR}" "${BIN_DIR}" "${CONF_DIR}"
-  install -m 755 "${tmpdir}/snell-server" "${release_path}"
-  ln -sfn "${release_path}" "${CURRENT_BIN}"
+    install -d -m 755 "${RELEASES_DIR}" "${BIN_DIR}" "${CONF_DIR}"
+    install -m 755 "${tmpdir}/snell-server" "${release_path}"
+    ln -sfn "${release_path}" "${CURRENT_BIN}"
+  )
 }
 
 maybe_manage_firewall() {

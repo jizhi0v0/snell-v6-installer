@@ -66,7 +66,7 @@ Install or update with one command:
 curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | sudo bash
 ```
 
-The installer prompts before changing the service. It shows the detected CPU architecture, current installed version when available, target version, and download URL.
+The installer prompts before changing the service. It shows the detected CPU architecture, current installed version when available, target version, download URL, and planned listen address. On first install, it also asks for the listen port and defaults to `7177`.
 
 Install a specific version with one command:
 
@@ -121,10 +121,10 @@ Set a custom first-install port and PSK:
 sudo env PORT=7177 PSK='replace-with-your-own-psk' ./snell-v6.sh
 ```
 
-Set dual-stack listen explicitly:
+Set dual-stack listen explicitly. `CONFIG_OVERWRITE=1` is needed when a config already exists:
 
 ```bash
-sudo env LISTEN='0.0.0.0:7177,[::]:7177' ./snell-v6.sh
+sudo env CONFIG_OVERWRITE=1 LISTEN='0.0.0.0:7177,[::]:7177' ./snell-v6.sh
 ```
 
 Prefer IPv4 for DNS results:
@@ -141,6 +141,7 @@ sudo env CONFIG_OVERWRITE=1 LISTEN='0.0.0.0:7177,[::]:7177' ./snell-v6.sh
 
 When `CONFIG_OVERWRITE=1` is used, existing values are preserved unless you explicitly override them. For example, changing `LISTEN` keeps the existing `psk`.
 The previous config is backed up before being rewritten.
+When the script writes a config, it validates the listen port, checks whether newly selected TCP ports already appear to be listening, and rejects IPv6 listen values if IPv6 appears disabled on the host.
 
 Print the latest detected Snell v6 version:
 
@@ -208,10 +209,23 @@ Keep `/opt/snell` while removing the service:
 curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6-uninstall.sh | sudo env PRESERVE_CONFIG=1 bash
 ```
 
+## Tests
+
+Run the local regression suite:
+
+```bash
+./tests/snell-v6-regression.sh
+```
+
+The suite covers version ordering, downgrade refusal, port validation, listen parsing, IPv6 rejection, occupied-port detection, config preservation, failed-config restore, and binary rollback.
+
 ## Notes
 
 - The script only manages `ufw` when `ufw` is already installed. It does not enable `ufw`.
 - Existing config content is preserved by default. The script may normalize its ownership and mode to `root:snell 640` so the service user can read it.
+- Existing configs are not modified during normal updates. `PORT`, `LISTEN`, `PSK`, `DNS_SERVERS`, and similar config values only affect first install or `CONFIG_OVERWRITE=1`.
+- When writing a config, ports must be in the `1` to `65535` range. New ports that are already listening are rejected before download or service changes.
+- IPv6 listen values such as `[::]:7177` must be explicit via `LISTEN`, and the script rejects them when IPv6 appears disabled locally.
 - `CONFIG_OVERWRITE=1` rewrites the config after creating a timestamped backup, preserves unspecified existing values such as `psk`, `dns`, and `egress-interface`, and restores the previous config if the service cannot restart with the rewritten config.
 - Existing service files are backed up before replacement.
 - If a service restart fails after switching to a new binary, the script attempts to roll the binary symlink back to the previous version.

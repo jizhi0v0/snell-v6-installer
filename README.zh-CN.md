@@ -31,7 +31,7 @@
 curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | sudo bash
 ```
 
-安装器会在修改服务前进行确认，并显示检测到的 CPU 架构、当前已安装版本、目标版本和下载 URL。如果当前版本解析不到，会显示 `unknown`。
+安装器会在修改服务前进行确认，并显示检测到的 CPU 架构、当前已安装版本、目标版本、下载 URL 和计划监听地址。如果当前版本解析不到，会显示 `unknown`。首次安装时还会询问监听端口，默认是 `7177`。
 
 指定安装 `v6.0.0b2`：
 
@@ -137,6 +137,7 @@ sudo env CONFIG_OVERWRITE=1 LISTEN='0.0.0.0:7177,[::]:7177' ./snell-v6.sh
 
 使用 `CONFIG_OVERWRITE=1` 时，脚本会保留你没有显式覆盖的旧值。比如只修改 `LISTEN`，旧的 `psk` 会继续保留。
 重写前会先备份旧配置。
+脚本写入配置前会验证端口范围，检查新选择的 TCP 端口是否已经被监听，并在本机 IPv6 不可用时拒绝 IPv6 监听配置。
 
 IPv6 出口不稳定时，优先使用 IPv4 解析结果：
 
@@ -188,6 +189,16 @@ curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/sn
 curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6-uninstall.sh | sudo env PRESERVE_CONFIG=1 bash
 ```
 
+## 测试
+
+运行本地回归测试：
+
+```bash
+./tests/snell-v6-regression.sh
+```
+
+测试覆盖版本排序、拒绝误降级、端口校验、监听地址解析、IPv6 不可用时拒绝、端口占用检测、配置保留、失败配置恢复和二进制回滚。
+
 ## 已安装路径
 
 - 固定二进制入口：`/opt/snell/bin/snell-server-v6`
@@ -208,6 +219,9 @@ sudo systemctl restart snell-v6
 
 - 脚本只会在系统已经安装 `ufw` 时尝试添加或删除端口规则，不会主动启用 `ufw`。
 - 已有配置内容默认会保留。脚本可能会把配置权限修正为 `root:snell 640`，让 `snell` 服务用户可以读取。
+- 普通更新不会修改已有配置。`PORT`、`LISTEN`、`PSK`、`DNS_SERVERS` 等配置参数只会在首次安装或 `CONFIG_OVERWRITE=1` 时生效。
+- 写入配置时，端口必须在 `1` 到 `65535` 范围内。新选择的端口如果已经被监听，脚本会在下载和修改服务前退出。
+- IPv6 监听例如 `[::]:7177` 必须通过 `LISTEN` 显式配置；如果脚本检测到本机 IPv6 不可用，会拒绝该配置。
 - `CONFIG_OVERWRITE=1` 会先创建带时间戳的配置备份再重写，并保留未显式覆盖的旧值，例如 `psk`、`dns`、`egress-interface`；如果重写后的配置导致服务无法重启，会恢复旧配置。
 - 更新 systemd service 文件前，会备份旧文件。
 - 如果切换到新二进制后服务重启失败，脚本会尝试把二进制软链接回滚到上一个版本。

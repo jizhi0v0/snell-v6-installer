@@ -20,7 +20,15 @@ RELEASE_NOTES_URL="${RELEASE_NOTES_URL:-https://kb.nssurge.com/surge-knowledge-b
 DOWNLOAD_BASE_URL="${DOWNLOAD_BASE_URL:-https://dl.nssurge.com/snell}"
 
 VERSION="${VERSION:-auto}"
+PORT_EXPLICIT=0
+if [[ -n "${PORT+x}" && -n "${PORT:-}" ]]; then
+  PORT_EXPLICIT=1
+fi
 PORT="${PORT:-7177}"
+LISTEN_EXPLICIT=0
+if [[ -n "${LISTEN+x}" && -n "${LISTEN:-}" ]]; then
+  LISTEN_EXPLICIT=1
+fi
 LISTEN="${LISTEN:-}"
 PSK="${PSK:-}"
 DNS_IP_PREFERENCE="${DNS_IP_PREFERENCE:-}"
@@ -63,13 +71,13 @@ Environment variables:
   VERSION=v6.0.0           Install a specific stable build.
   ARCH=auto                 Detect CPU arch automatically.
   ARCH=amd64                Override CPU arch. Also accepts x86_64, i386, arm64, aarch64, armv7l.
-  PORT=7177                Default listen port for first install only.
-  LISTEN=0.0.0.0:7177      Override the generated listen line for first install.
+  PORT=7177                Listen port for first install, or with CONFIG_OVERWRITE=1.
+  LISTEN=0.0.0.0:7177      Override the generated listen line when writing config.
   PSK=...                  Override the generated PSK for first install.
   DNS_IP_PREFERENCE=default
   DNS_SERVERS=1.1.1.1,8.8.8.8
   EGRESS_INTERFACE=eth0
-  CONFIG_OVERWRITE=1       Rewrite the config file on update.
+  CONFIG_OVERWRITE=1       Rewrite the config file on update, preserving unspecified values.
   ALLOW_DOWNGRADE=0        Refuse automatic downgrades by default.
   ASSUME_YES=0             Prompt before install/update. Set to 1 for automation.
   MANAGE_FIREWALL=auto     Add an allow rule when ufw exists.
@@ -127,6 +135,239 @@ is_truthy() {
       return 1
       ;;
   esac
+}
+
+can_prompt() {
+  [[ -r /dev/tty && -w /dev/tty ]]
+}
+
+is_valid_port() {
+  local port="$1"
+
+  [[ "${port}" =~ ^[0-9]+$ ]] || return 1
+  [[ "${#port}" -le 5 ]] || return 1
+  (( 10#${port} >= 1 && 10#${port} <= 65535 ))
+}
+
+validate_port() {
+  local port="$1"
+
+  is_valid_port "${port}" || die "invalid port '${port}'; expected an integer from 1 to 65535"
+}
+
+normalize_port_value() {
+  local port="$1"
+
+  validate_port "${port}"
+  printf '%s\n' "$((10#${port}))"
+}
+
+trim_value() {
+  sed 's/^[[:space:]]*//;s/[[:space:]]*$//' <<<"${1:-}"
+}
+
+listen_ports() {
+  local listen="$1"
+  local endpoint port
+  local IFS=','
+  local -a endpoints
+
+  [[ -n "${listen}" ]] || die "listen value cannot be empty"
+
+  IFS=',' read -r -a endpoints <<<"${listen}"
+  for endpoint in "${endpoints[@]}"; do
+    endpoint="$(trim_value "${endpoint}")"
+    [[ -n "${endpoint}" ]] || die "listen contains an empty endpoint: ${listen}"
+
+    if [[ "${endpoint}" =~ ^\[[^]]+\]:([0-9]+)$ ]]; then
+      port="${BASH_REMATCH[1]}"
+    elif [[ "${endpoint}" =~ :([0-9]+)$ ]]; then
+      port="${BASH_REMATCH[1]}"
+    else
+      die "invalid listen endpoint '${endpoint}'; expected host:port or [ipv6]:port"
+    fi
+
+    validate_port "${port}"
+    normalize_port_value "${port}"
+  done
+}
+
+ipv6_available() {
+  local disabled
+
+  [[ -e /proc/net/if_inet6 ]] || return 1
+  disabled="$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null || printf '1')"
+  [[ "${disabled}" != "1" ]]
+}
+
+ensure_listen_ipv6_supported() {
+  local listen="$1"
+
+  if [[ "${listen}" == *'['*']'* ]] && ! ipv6_available; then
+    die "LISTEN includes IPv6, but IPv6 appears disabled on this host; use LISTEN=0.0.0.0:${PORT} or enable IPv6"
+  fi
+}
+
+validate_listen_value() {
+  local listen="$1"
+
+  listen_ports "${listen}" >/dev/null
+  ensure_listen_ipv6_supported "${listen}"
+}
+
+config_will_be_written() {
+  [[ ! -f "${CONFIG_FILE}" ]] || is_truthy "${CONFIG_OVERWRITE}"
+}
+
+planned_listen_value() {
+  local existing_listen
+
+  if [[ -f "${CONFIG_FILE}" ]] && ! is_truthy "${CONFIG_OVERWRITE}"; then
+    existing_listen="$(config_value "listen")"
+    if [[ -n "${existing_listen}" ]]; then
+      printf '%s\n' "${existing_listen}"
+      return 0
+    fi
+  fi
+
+  if [[ -n "${LISTEN}" ]]; then
+    printf '%s\n' "${LISTEN}"
+    return 0
+  fi
+
+  existing_listen="$(config_value "listen")"
+  if [[ -n "${existing_listen}" ]]; then
+    printf '%s\n' "${existing_listen}"
+    return 0
+  fi
+
+  printf '0.0.0.0:%s\n' "${PORT}"
+}
+
+prompt_for_config_port() {
+  local existing_listen answer default_port
+
+  is_truthy "${ASSUME_YES}" && return 0
+  can_prompt || return 0
+
+  existing_listen="$(config_value "listen")"
+  default_port="$(normalize_port_value "${PORT}")"
+
+  if ! { exec 3<>/dev/tty; } 2>/dev/null; then
+    return 0
+  fi
+
+  while true; do
+    if [[ -f "${CONFIG_FILE}" && -n "${existing_listen}" ]]; then
+      printf 'Listen port [keep current: %s]: ' "${existing_listen}" >&3
+    else
+      printf 'Listen port [%s]: ' "${default_port}" >&3
+    fi
+
+    IFS= read -r answer <&3 || answer=""
+    answer="$(trim_value "${answer}")"
+
+    if [[ -z "${answer}" && -f "${CONFIG_FILE}" && -n "${existing_listen}" ]]; then
+      exec 3>&- 3<&-
+      return 0
+    fi
+
+    if [[ -z "${answer}" ]]; then
+      answer="${default_port}"
+    fi
+
+    if is_valid_port "${answer}"; then
+      PORT="$(normalize_port_value "${answer}")"
+      LISTEN="0.0.0.0:${PORT}"
+      exec 3>&- 3<&-
+      return 0
+    fi
+
+    printf 'Invalid port. Please enter an integer from 1 to 65535.\n' >&3
+  done
+}
+
+port_list_contains() {
+  local needle="$1"
+  local haystack="$2"
+
+  grep -qx -- "${needle}" <<<"${haystack}"
+}
+
+service_is_active() {
+  command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet "${SERVICE_NAME}"
+}
+
+port_is_listening() {
+  local port="$1"
+
+  if command -v ss >/dev/null 2>&1; then
+    ss -H -ltn 2>/dev/null \
+      | awk -v port="${port}" '{ if ($4 ~ ":" port "$") found=1 } END { exit found ? 0 : 1 }'
+    return $?
+  fi
+
+  if command -v netstat >/dev/null 2>&1; then
+    netstat -ltn 2>/dev/null \
+      | awk -v port="${port}" '{ if ($4 ~ ":" port "$") found=1 } END { exit found ? 0 : 1 }'
+    return $?
+  fi
+
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1
+    return $?
+  fi
+
+  return 1
+}
+
+ensure_planned_ports_available() {
+  local listen="$1"
+  local ports existing_listen existing_ports port service_active=0
+
+  ports="$(listen_ports "${listen}")"
+  existing_listen="$(config_value "listen")"
+  existing_ports=""
+  if [[ -n "${existing_listen}" ]] && ! existing_ports="$(listen_ports "${existing_listen}" 2>/dev/null)"; then
+    existing_ports=""
+  fi
+  if service_is_active; then
+    service_active=1
+  fi
+
+  while IFS= read -r port; do
+    [[ -n "${port}" ]] || continue
+    if [[ "${service_active}" -eq 1 ]] && port_list_contains "${port}" "${existing_ports}"; then
+      continue
+    fi
+    if port_is_listening "${port}"; then
+      die "tcp/${port} already appears to be listening; choose another PORT or LISTEN"
+    fi
+  done <<<"${ports}"
+}
+
+prepare_config_inputs() {
+  local listen
+
+  config_will_be_written || return 0
+
+  if [[ "${LISTEN_EXPLICIT}" -eq 1 ]]; then
+    validate_listen_value "${LISTEN}"
+  elif [[ "${PORT_EXPLICIT}" -eq 1 ]]; then
+    PORT="$(normalize_port_value "${PORT}")"
+    LISTEN="0.0.0.0:${PORT}"
+  else
+    prompt_for_config_port
+  fi
+
+  if [[ -z "${LISTEN}" && ! -f "${CONFIG_FILE}" ]]; then
+    PORT="$(normalize_port_value "${PORT}")"
+    LISTEN="0.0.0.0:${PORT}"
+  fi
+
+  listen="$(planned_listen_value)"
+  validate_listen_value "${listen}"
+  ensure_planned_ports_available "${listen}"
 }
 
 install_deps() {
@@ -335,7 +576,7 @@ ensure_not_downgrade() {
 confirm_apply() {
   local target_version="$1"
   local url="$2"
-  local installed_path installed_version installed_display relation config_display answer
+  local installed_path installed_version installed_display relation config_display listen_display answer
 
   if is_truthy "${ASSUME_YES}"; then
     return 0
@@ -367,6 +608,7 @@ confirm_apply() {
   else
     config_display="create new config"
   fi
+  listen_display="$(planned_listen_value)"
 
   if ! { exec 3<>/dev/tty; } 2>/dev/null; then
     die "confirmation requires a TTY; set ASSUME_YES=1 for non-interactive use"
@@ -382,6 +624,7 @@ confirm_apply() {
     printf '  Binary symlink: %s\n' "${CURRENT_BIN}"
     printf '  Config file: %s\n' "${CONFIG_FILE}"
     printf '  Config action: %s\n' "${config_display}"
+    printf '  Listen: %s\n' "${listen_display}"
     printf '  Service: %s\n' "${SERVICE_NAME}"
     printf '\nProceed? [y/N] '
   } >&3
@@ -599,7 +842,9 @@ maybe_manage_firewall() {
 configured_port() {
   local listen_value=""
 
-  if [[ -n "${LISTEN}" ]]; then
+  if [[ -f "${CONFIG_FILE}" ]] && ! is_truthy "${CONFIG_OVERWRITE}"; then
+    listen_value="$(sed -n 's/^[[:space:]]*listen[[:space:]]*=[[:space:]]*//p' "${CONFIG_FILE}" | head -n 1)"
+  elif [[ -n "${LISTEN}" ]]; then
     listen_value="${LISTEN}"
   elif [[ -f "${CONFIG_FILE}" ]]; then
     listen_value="$(sed -n 's/^[[:space:]]*listen[[:space:]]*=[[:space:]]*//p' "${CONFIG_FILE}" | head -n 1)"
@@ -680,6 +925,7 @@ apply() {
   version="$(resolve_version "${url}")"
   ensure_download_available "${url}" "${version}"
   ensure_not_downgrade "${version}"
+  prepare_config_inputs
   confirm_apply "${version}" "${url}"
 
   previous_path="$(current_installed_path)"

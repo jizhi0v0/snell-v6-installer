@@ -31,6 +31,7 @@ MANAGE_FIREWALL="${MANAGE_FIREWALL:-auto}"
 CONFIG_OVERWRITE="${CONFIG_OVERWRITE:-0}"
 ALLOW_DOWNGRADE="${ALLOW_DOWNGRADE:-0}"
 ASSUME_YES="${ASSUME_YES:-0}"
+CONFIG_BACKUP_PATH=""
 
 ACTION="${1:-apply}"
 
@@ -456,6 +457,7 @@ backup_config_file() {
   [[ -f "${CONFIG_FILE}" ]] || return 0
   backup="${CONFIG_FILE}.bak.$(date +%Y%m%d%H%M%S)"
   cp -p "${CONFIG_FILE}" "${backup}"
+  CONFIG_BACKUP_PATH="${backup}"
   log "backed up previous config to ${backup}"
 }
 
@@ -568,7 +570,8 @@ download_and_install_release() {
     install -d -m 755 "${RELEASES_DIR}" "${BIN_DIR}" "${CONF_DIR}"
     install -m 755 "${tmpdir}/snell-server" "${release_path}"
     validate_release_binary "${release_path}"
-    ln -sfn "${release_path}" "${CURRENT_BIN}"
+    rm -f "${CURRENT_BIN}"
+    ln -s "${release_path}" "${CURRENT_BIN}"
   )
 }
 
@@ -622,6 +625,39 @@ restart_service() {
   fi
 }
 
+rollback_binary_after_failed_restart() {
+  local previous_path="$1"
+  local current_path
+
+  current_path="$(current_installed_path)"
+
+  if [[ -z "${previous_path}" || "${previous_path}" == "${current_path}" || ! -x "${previous_path}" ]]; then
+    return 1
+  fi
+
+  rm -f "${CURRENT_BIN}"
+  ln -s "${previous_path}" "${CURRENT_BIN}"
+  log "service restart failed; rolled binary symlink back to ${previous_path}"
+  systemctl reset-failed "${SERVICE_NAME}" >/dev/null 2>&1 || true
+  restart_service >/dev/null 2>&1 || return 1
+  return 0
+}
+
+restore_config_after_failed_restart() {
+  local failed_path
+
+  [[ -n "${CONFIG_BACKUP_PATH}" && -f "${CONFIG_BACKUP_PATH}" ]] || return 1
+
+  failed_path="${CONFIG_FILE}.failed.$(date +%Y%m%d%H%M%S)"
+  cp -p "${CONFIG_FILE}" "${failed_path}" 2>/dev/null || true
+  install -m 640 -o root -g "${RUN_GROUP}" "${CONFIG_BACKUP_PATH}" "${CONFIG_FILE}"
+  log "service restart failed; restored config from ${CONFIG_BACKUP_PATH}"
+  if [[ -f "${failed_path}" ]]; then
+    log "kept failed config at ${failed_path}"
+  fi
+  return 0
+}
+
 show_summary() {
   local version="$1"
   log "installed version: ${version}"
@@ -633,7 +669,7 @@ show_summary() {
 }
 
 apply() {
-  local url version
+  local url version previous_path config_restored=0
 
   need_root
   need_linux
@@ -646,12 +682,30 @@ apply() {
   ensure_not_downgrade "${version}"
   confirm_apply "${version}" "${url}"
 
+  previous_path="$(current_installed_path)"
   ensure_service_user
   download_and_install_release "${url}" "${version}"
   write_config
   write_service_file
   maybe_manage_firewall
-  restart_service
+
+  if ! restart_service; then
+    if restore_config_after_failed_restart; then
+      config_restored=1
+      if restart_service; then
+        die "service failed after config rewrite; restored the previous config; check journalctl -xeu ${SERVICE_NAME}.service"
+      fi
+    fi
+
+    if rollback_binary_after_failed_restart "${previous_path}"; then
+      if [[ "${config_restored}" -eq 1 ]]; then
+        die "service failed after update; restored the previous config and rolled back to the previous binary; check journalctl -xeu ${SERVICE_NAME}.service"
+      fi
+      die "service failed after update and was rolled back to the previous binary; check journalctl -xeu ${SERVICE_NAME}.service"
+    fi
+    die "service failed to start; check journalctl -xeu ${SERVICE_NAME}.service"
+  fi
+
   show_summary "${version}"
 }
 

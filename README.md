@@ -212,8 +212,9 @@ curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/sn
 
 - The script only manages `ufw` when `ufw` is already installed. It does not enable `ufw`.
 - Existing config content is preserved by default. The script may normalize its ownership and mode to `root:snell 640` so the service user can read it.
-- `CONFIG_OVERWRITE=1` rewrites the config after creating a timestamped backup, and preserves unspecified existing values such as `psk`, `dns`, and `egress-interface`.
+- `CONFIG_OVERWRITE=1` rewrites the config after creating a timestamped backup, preserves unspecified existing values such as `psk`, `dns`, and `egress-interface`, and restores the previous config if the service cannot restart with the rewritten config.
 - Existing service files are backed up before replacement.
+- If a service restart fails after switching to a new binary, the script attempts to roll the binary symlink back to the previous version.
 
 ## Upstream references
 

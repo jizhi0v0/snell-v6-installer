@@ -135,6 +135,9 @@ sudo env PORT=7177 PSK='replace-with-your-own-psk' ./snell-v6.sh
 sudo env CONFIG_OVERWRITE=1 LISTEN='0.0.0.0:7177,[::]:7177' ./snell-v6.sh
 ```
 
+使用 `CONFIG_OVERWRITE=1` 时，脚本会保留你没有显式覆盖的旧值。比如只修改 `LISTEN`，旧的 `psk` 会继续保留。
+重写前会先备份旧配置。
+
 IPv6 出口不稳定时，优先使用 IPv4 解析结果：
 
 ```bash
@@ -204,7 +207,8 @@ sudo systemctl restart snell-v6
 ## 说明
 
 - 脚本只会在系统已经安装 `ufw` 时尝试添加或删除端口规则，不会主动启用 `ufw`。
-- 已有配置默认会保留，只有设置 `CONFIG_OVERWRITE=1` 才会重写。
+- 已有配置内容默认会保留。脚本可能会把配置权限修正为 `root:snell 640`，让 `snell` 服务用户可以读取。
+- `CONFIG_OVERWRITE=1` 会先创建带时间戳的配置备份再重写，并保留未显式覆盖的旧值，例如 `psk`、`dns`、`egress-interface`。
 - 更新 systemd service 文件前，会备份旧文件。
 - 下载二进制后会先检查能否在当前机器运行，再切换软链接，避免服务指向缺库或架构不匹配的文件。
 

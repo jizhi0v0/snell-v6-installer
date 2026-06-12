@@ -139,6 +139,9 @@ Rewrite the config during an upgrade:
 sudo env CONFIG_OVERWRITE=1 LISTEN='0.0.0.0:7177,[::]:7177' ./snell-v6.sh
 ```
 
+When `CONFIG_OVERWRITE=1` is used, existing values are preserved unless you explicitly override them. For example, changing `LISTEN` keeps the existing `psk`.
+The previous config is backed up before being rewritten.
+
 Print the latest detected Snell v6 version:
 
 ```bash
@@ -208,7 +211,8 @@ curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/sn
 ## Notes
 
 - The script only manages `ufw` when `ufw` is already installed. It does not enable `ufw`.
-- Existing config is preserved unless `CONFIG_OVERWRITE=1`.
+- Existing config content is preserved by default. The script may normalize its ownership and mode to `root:snell 640` so the service user can read it.
+- `CONFIG_OVERWRITE=1` rewrites the config after creating a timestamped backup, and preserves unspecified existing values such as `psk`, `dns`, and `egress-interface`.
 - Existing service files are backed up before replacement.
 
 ## Upstream references

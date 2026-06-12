@@ -23,7 +23,7 @@ VERSION="${VERSION:-auto}"
 PORT="${PORT:-7177}"
 LISTEN="${LISTEN:-}"
 PSK="${PSK:-}"
-DNS_IP_PREFERENCE="${DNS_IP_PREFERENCE:-default}"
+DNS_IP_PREFERENCE="${DNS_IP_PREFERENCE:-}"
 DNS_SERVERS="${DNS_SERVERS:-}"
 EGRESS_INTERFACE="${EGRESS_INTERFACE:-}"
 AUTO_INSTALL_DEPS="${AUTO_INSTALL_DEPS:-1}"
@@ -334,7 +334,7 @@ ensure_not_downgrade() {
 confirm_apply() {
   local target_version="$1"
   local url="$2"
-  local installed_path installed_version installed_display relation answer
+  local installed_path installed_version installed_display relation config_display answer
 
   if is_truthy "${ASSUME_YES}"; then
     return 0
@@ -359,6 +359,14 @@ confirm_apply() {
     relation="install"
   fi
 
+  if [[ -f "${CONFIG_FILE}" ]] && is_truthy "${CONFIG_OVERWRITE}"; then
+    config_display="rewrite existing config, preserving unspecified values"
+  elif [[ -f "${CONFIG_FILE}" ]]; then
+    config_display="preserve existing config, normalize permissions"
+  else
+    config_display="create new config"
+  fi
+
   if ! { exec 3<>/dev/tty; } 2>/dev/null; then
     die "confirmation requires a TTY; set ASSUME_YES=1 for non-interactive use"
   fi
@@ -372,6 +380,7 @@ confirm_apply() {
     printf '  Download URL: %s\n' "${url}"
     printf '  Binary symlink: %s\n' "${CURRENT_BIN}"
     printf '  Config file: %s\n' "${CONFIG_FILE}"
+    printf '  Config action: %s\n' "${config_display}"
     printf '  Service: %s\n' "${SERVICE_NAME}"
     printf '\nProceed? [y/N] '
   } >&3
@@ -434,35 +443,68 @@ ensure_config_permissions() {
   chmod 640 "${CONFIG_FILE}"
 }
 
+config_value() {
+  local key="$1"
+
+  [[ -f "${CONFIG_FILE}" ]] || return 0
+  sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//p" "${CONFIG_FILE}" | head -n 1
+}
+
+backup_config_file() {
+  local backup
+
+  [[ -f "${CONFIG_FILE}" ]] || return 0
+  backup="${CONFIG_FILE}.bak.$(date +%Y%m%d%H%M%S)"
+  cp -p "${CONFIG_FILE}" "${backup}"
+  log "backed up previous config to ${backup}"
+}
+
 write_config() {
   local created=0
   local final_listen="${LISTEN}"
   local final_psk="${PSK}"
+  local final_dns_ip_preference="${DNS_IP_PREFERENCE}"
+  local final_dns_servers="${DNS_SERVERS}"
+  local final_egress_interface="${EGRESS_INTERFACE}"
+  local existing_listen existing_psk existing_dns_ip_preference existing_dns_servers existing_egress_interface
   local tmp
 
-  if [[ -f "${CONFIG_FILE}" && "${CONFIG_OVERWRITE}" != "1" ]]; then
+  if [[ -f "${CONFIG_FILE}" ]] && ! is_truthy "${CONFIG_OVERWRITE}"; then
     ensure_config_permissions
     return 0
   fi
 
+  existing_listen="$(config_value "listen")"
+  existing_psk="$(config_value "psk")"
+  existing_dns_ip_preference="$(config_value "dns-ip-preference")"
+  existing_dns_servers="$(config_value "dns")"
+  existing_egress_interface="$(config_value "egress-interface")"
+
+  [[ -n "${final_listen}" ]] || final_listen="${existing_listen}"
   [[ -n "${final_listen}" ]] || final_listen="0.0.0.0:${PORT}"
+  [[ -n "${final_psk}" ]] || final_psk="${existing_psk}"
   [[ -n "${final_psk}" ]] || final_psk="$(random_psk)"
+  [[ -n "${final_dns_ip_preference}" ]] || final_dns_ip_preference="${existing_dns_ip_preference}"
+  [[ -n "${final_dns_ip_preference}" ]] || final_dns_ip_preference="default"
+  [[ -n "${final_dns_servers}" ]] || final_dns_servers="${existing_dns_servers}"
+  [[ -n "${final_egress_interface}" ]] || final_egress_interface="${existing_egress_interface}"
 
   tmp="$(mktemp)"
   {
     printf '[snell-server]\n'
     printf 'listen = %s\n' "${final_listen}"
     printf 'psk = %s\n' "${final_psk}"
-    printf 'dns-ip-preference = %s\n' "${DNS_IP_PREFERENCE}"
-    if [[ -n "${DNS_SERVERS}" ]]; then
-      printf 'dns = %s\n' "${DNS_SERVERS}"
+    printf 'dns-ip-preference = %s\n' "${final_dns_ip_preference}"
+    if [[ -n "${final_dns_servers}" ]]; then
+      printf 'dns = %s\n' "${final_dns_servers}"
     fi
-    if [[ -n "${EGRESS_INTERFACE}" ]]; then
-      printf 'egress-interface = %s\n' "${EGRESS_INTERFACE}"
+    if [[ -n "${final_egress_interface}" ]]; then
+      printf 'egress-interface = %s\n' "${final_egress_interface}"
     fi
   } >"${tmp}"
 
   install -d -m 755 "${CONF_DIR}"
+  backup_config_file
   install -m 640 -o root -g "${RUN_GROUP}" "${tmp}" "${CONFIG_FILE}"
   rm -f "${tmp}"
   created=1

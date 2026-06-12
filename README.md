@@ -27,6 +27,24 @@ The script supports both beta and stable Snell v6 naming:
 
 If `VERSION` is omitted, the script fetches the official Snell release notes and resolves the latest available `v6` build for the current CPU architecture.
 
+## CPU architecture
+
+The script detects the current CPU automatically. You can also override it with `ARCH`:
+
+- `ARCH=amd64` for x86_64 VPS hosts
+- `ARCH=i386` for 32-bit x86 hosts
+- `ARCH=aarch64` for ARM64 hosts
+
+Common aliases also work: `x86_64`, `i686`, and `arm64`.
+
+For Snell `v6.0.0b2`, the official downloads are:
+
+```text
+https://dl.nssurge.com/snell/snell-server-v6.0.0b2-linux-amd64.zip
+https://dl.nssurge.com/snell/snell-server-v6.0.0b2-linux-i386.zip
+https://dl.nssurge.com/snell/snell-server-v6.0.0b2-linux-aarch64.zip
+```
+
 ## Requirements
 
 - Linux VPS
@@ -57,6 +75,14 @@ Install a specific beta:
 
 ```bash
 sudo VERSION=v6.0.0b2 ./snell-v6.sh
+```
+
+Install a specific beta for a specific CPU:
+
+```bash
+sudo VERSION=v6.0.0b2 ARCH=amd64 ./snell-v6.sh
+sudo VERSION=v6.0.0b2 ARCH=i386 ./snell-v6.sh
+sudo VERSION=v6.0.0b2 ARCH=aarch64 ./snell-v6.sh
 ```
 
 Install a future stable build:
@@ -93,6 +119,12 @@ Print the latest detected Snell v6 version:
 
 ```bash
 ./snell-v6.sh latest
+```
+
+Print the CPU architectures available for a version:
+
+```bash
+VERSION=v6.0.0b2 ./snell-v6.sh arches
 ```
 
 Print the resolved download URL:

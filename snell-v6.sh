@@ -44,11 +44,12 @@ die() {
 usage() {
   cat <<'EOF'
 Usage:
-  sudo ./snell-v6.sh [apply|latest|download-url|help]
+  sudo ./snell-v6.sh [apply|latest|arches|download-url|help]
 
 Actions:
   apply         Install or update Snell v6. Default action.
   latest        Print the latest detected Snell v6 version for the current arch.
+  arches        Print available CPU architectures for VERSION, or latest v6.
   download-url  Print the resolved download URL for VERSION/current arch.
   help          Show this help.
 
@@ -56,6 +57,8 @@ Environment variables:
   VERSION=auto              Detect the latest v6 release from official release notes.
   VERSION=v6.0.0b2         Install a specific beta build.
   VERSION=v6.0.0           Install a specific stable build.
+  ARCH=auto                 Detect CPU arch automatically.
+  ARCH=amd64                Override CPU arch. Also accepts x86_64, i386, arm64, aarch64.
   PORT=7177                Default listen port for first install only.
   LISTEN=0.0.0.0:7177      Override the generated listen line for first install.
   PSK=...                  Override the generated PSK for first install.
@@ -82,10 +85,13 @@ need_systemd() {
   command -v systemctl >/dev/null 2>&1 || die "systemctl not found; this script expects systemd"
 }
 
-detect_arch() {
-  local raw_arch
-  raw_arch="$(uname -m)"
+normalize_arch() {
+  local raw_arch="$1"
+
   case "${raw_arch}" in
+    auto)
+      normalize_arch "$(uname -m)"
+      ;;
     x86_64|amd64)
       printf 'amd64\n'
       ;;
@@ -99,12 +105,12 @@ detect_arch() {
       printf 'i386\n'
       ;;
     *)
-      die "unsupported architecture: ${raw_arch}"
+      die "unsupported architecture: ${raw_arch}; supported values are amd64, i386, aarch64, and armv7l"
       ;;
   esac
 }
 
-ARCH="${ARCH:-$(detect_arch)}"
+ARCH="$(normalize_arch "${ARCH:-auto}")"
 
 install_deps() {
   local missing=0
@@ -172,13 +178,24 @@ fetch_release_notes() {
   curl -fsSL "${RELEASE_NOTES_URL}"
 }
 
+available_v6_downloads() {
+  fetch_release_notes \
+    | grep -Eo 'https://dl\.nssurge\.com/snell/snell-server-v6[^[:space:]]*-linux-[[:alnum:]]+\.zip' \
+    | sort -u \
+    || true
+}
+
+extract_arch_from_url() {
+  local url="$1"
+  sed -n 's#.*-linux-\([[:alnum:]]*\)\.zip#\1#p' <<<"${url}"
+}
+
 latest_v6_url() {
-  local urls line version key best_line=""
+  local urls line version key
 
   urls="$(
-    fetch_release_notes \
-      | grep -Eo "https://dl\\.nssurge\\.com/snell/snell-server-v6[^[:space:]]*-linux-${ARCH}\\.zip" \
-      | sort -u
+    available_v6_downloads \
+      | awk -v arch="${ARCH}" '$0 ~ "-linux-" arch "\\.zip$"'
   )"
 
   [[ -n "${urls}" ]] || die "no Snell v6 download found for arch ${ARCH}"
@@ -189,6 +206,43 @@ latest_v6_url() {
     key="$(version_sort_key "${version}")"
     printf '%s\t%s\t%s\n' "${key}" "${version}" "${line}"
   done <<<"${urls}" | sort | tail -n 1 | awk -F '\t' '{print $3}'
+}
+
+latest_v6_version() {
+  local urls line version key
+
+  urls="$(available_v6_downloads)"
+  [[ -n "${urls}" ]] || die "no Snell v6 downloads found in release notes"
+
+  while IFS= read -r line; do
+    [[ -n "${line}" ]] || continue
+    version="$(extract_version_from_url "${line}")"
+    key="$(version_sort_key "${version}")"
+    printf '%s\t%s\n' "${key}" "${version}"
+  done <<<"${urls}" | sort -u | sort | tail -n 1 | awk -F '\t' '{print $2}'
+}
+
+available_arches() {
+  local version="${VERSION}"
+  local arches
+
+  if [[ "${version}" == "auto" ]]; then
+    version="$(latest_v6_version)"
+  fi
+
+  arches="$(
+    available_v6_downloads \
+    | awk -v version="${version}" '$0 ~ "snell-server-" version "-linux-" { print }' \
+    | while IFS= read -r line; do
+        extract_arch_from_url "${line}"
+      done \
+    | sort -u \
+    | tr '\n' ' ' \
+    | sed 's/[[:space:]]*$//'
+  )"
+
+  [[ -n "${arches}" ]] || die "no downloads found for VERSION=${version}"
+  printf '%s: %s\n' "${version}" "${arches}"
 }
 
 resolve_download_url() {
@@ -203,6 +257,17 @@ resolve_download_url() {
 resolve_version() {
   local url="$1"
   extract_version_from_url "${url}"
+}
+
+ensure_download_available() {
+  local url="$1"
+  local version="$2"
+
+  if curl -fsIL "${url}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  die "download not available for VERSION=${version} ARCH=${ARCH}; run VERSION=${version} ./snell-v6.sh arches"
 }
 
 random_psk() {
@@ -385,6 +450,7 @@ apply() {
 
   url="$(resolve_download_url)"
   version="$(resolve_version "${url}")"
+  ensure_download_available "${url}" "${version}"
 
   ensure_service_user
   download_and_install_release "${url}" "${version}"
@@ -401,6 +467,9 @@ case "${ACTION}" in
     ;;
   latest)
     basename "$(latest_v6_url)" | sed -n 's/^snell-server-\(v6[^-]*\)-linux-.*$/\1/p'
+    ;;
+  arches)
+    available_arches
     ;;
   download-url)
     resolve_download_url

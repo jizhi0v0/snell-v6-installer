@@ -2,6 +2,10 @@
 
 [English](README.md)
 
+## 关于
+
+用于 `systemd` Linux VPS 的 Snell v6 一键安装、更新和卸载脚本。默认保留已有配置，并保存版本化二进制，方便安全升级和回滚。
+
 这个仓库提供一套用于 Linux VPS 的 Snell v6 安装、更新和卸载脚本，适用于使用 `systemd` 的系统。
 
 脚本会把运行入口固定为 `/opt/snell/bin/snell-server-v6`，真实二进制按版本保存在 `/opt/snell/releases/`。这样后续升级只需要切换软链接，旧版本仍然保留，回滚会比较简单。

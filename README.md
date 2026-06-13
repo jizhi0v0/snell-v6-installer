@@ -2,6 +2,10 @@
 
 [中文说明](README.zh-CN.md)
 
+## About
+
+One-command Snell v6 installer, updater, and uninstaller for `systemd` Linux VPS hosts. It preserves existing config by default and keeps versioned binaries for safer upgrades and rollbacks.
+
 This repository contains a single script for first-time Snell v6 deployment and later upgrades on a Linux VPS with `systemd`.
 
 It keeps the runtime path stable at `/opt/snell/bin/snell-server-v6`, while storing real binaries under `/opt/snell/releases/`. That gives you easy upgrades and easy rollbacks without overwriting the old binary in place.

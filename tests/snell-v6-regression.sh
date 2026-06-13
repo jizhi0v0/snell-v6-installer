@@ -130,6 +130,19 @@ test_version_ordering() (
   assert_eq "reinstall" "$(version_relation v6.0.0b2 v6.0.0b2)" "same version should be reinstall"
 )
 
+test_bilingual_relation_labels() (
+  ARCH=amd64
+  VERSION=v6.0.0b2
+  ASSUME_YES=1
+  source_installer_functions
+
+  assert_eq "install / 安装" "$(display_relation install)" "install relation should be bilingual"
+  assert_eq "update / 更新" "$(display_relation update)" "update relation should be bilingual"
+  assert_eq "reinstall / 重装" "$(display_relation reinstall)" "reinstall relation should be bilingual"
+  assert_eq "downgrade / 降级" "$(display_relation downgrade)" "downgrade relation should be bilingual"
+  assert_eq "unknown / 未知" "$(display_relation unknown)" "unknown relation should be bilingual"
+)
+
 test_port_validation() (
   ARCH=amd64
   VERSION=v6.0.0b2
@@ -371,6 +384,7 @@ test_binary_rollback() (
 
 main() {
   test_version_ordering
+  test_bilingual_relation_labels
   test_port_validation
   test_listen_validation
   test_first_install_port_preparation

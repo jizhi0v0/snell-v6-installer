@@ -66,7 +66,7 @@ Install or update with one command:
 curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | sudo bash
 ```
 
-The installer prompts before changing the service. It shows the detected CPU architecture, current installed version when available, target version, download URL, and planned listen address. On first install, it also asks for the listen port and defaults to `7177`.
+The installer prompts in both English and Chinese before changing the service. It shows the detected CPU architecture, current installed version when available, target version, download URL, and planned listen address. On first install, it also asks for the listen port and defaults to `7177`.
 
 Install a specific version with one command:
 

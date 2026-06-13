@@ -259,9 +259,9 @@ prompt_for_config_port() {
 
   while true; do
     if [[ -f "${CONFIG_FILE}" && -n "${existing_listen}" ]]; then
-      printf 'Listen port [keep current: %s]: ' "${existing_listen}" >&3
+      printf 'Listen port / 监听端口 [keep current / 保持当前: %s]: ' "${existing_listen}" >&3
     else
-      printf 'Listen port [%s]: ' "${default_port}" >&3
+      printf 'Listen port / 监听端口 [%s]: ' "${default_port}" >&3
     fi
 
     IFS= read -r answer <&3 || answer=""
@@ -283,7 +283,7 @@ prompt_for_config_port() {
       return 0
     fi
 
-    printf 'Invalid port. Please enter an integer from 1 to 65535.\n' >&3
+    printf 'Invalid port. Please enter an integer from 1 to 65535. / 端口无效，请输入 1 到 65535 之间的整数。\n' >&3
   done
 }
 
@@ -573,10 +573,33 @@ ensure_not_downgrade() {
   fi
 }
 
+display_relation() {
+  case "$1" in
+    install)
+      printf 'install / 安装\n'
+      ;;
+    update)
+      printf 'update / 更新\n'
+      ;;
+    reinstall)
+      printf 'reinstall / 重装\n'
+      ;;
+    downgrade)
+      printf 'downgrade / 降级\n'
+      ;;
+    unknown)
+      printf 'unknown / 未知\n'
+      ;;
+    *)
+      printf '%s\n' "$1"
+      ;;
+  esac
+}
+
 confirm_apply() {
   local target_version="$1"
   local url="$2"
-  local installed_path installed_version installed_display relation config_display listen_display answer
+  local installed_path installed_version installed_display relation relation_display config_display listen_display answer
 
   if is_truthy "${ASSUME_YES}"; then
     return 0
@@ -588,9 +611,9 @@ confirm_apply() {
   if [[ -n "${installed_version}" ]]; then
     installed_display="${installed_version}"
   elif [[ -n "${installed_path}" ]]; then
-    installed_display="unknown (${installed_path})"
+    installed_display="unknown / 未知 (${installed_path})"
   else
-    installed_display="not installed"
+    installed_display="not installed / 未安装"
   fi
 
   if [[ -n "${installed_version}" ]]; then
@@ -600,40 +623,41 @@ confirm_apply() {
   else
     relation="install"
   fi
+  relation_display="$(display_relation "${relation}")"
 
   if [[ -f "${CONFIG_FILE}" ]] && is_truthy "${CONFIG_OVERWRITE}"; then
-    config_display="rewrite existing config, preserving unspecified values"
+    config_display="rewrite existing config, preserving unspecified values / 重写已有配置，保留未显式覆盖的值"
   elif [[ -f "${CONFIG_FILE}" ]]; then
-    config_display="preserve existing config, normalize permissions"
+    config_display="preserve existing config, normalize permissions / 保留已有配置，仅修正权限"
   else
-    config_display="create new config"
+    config_display="create new config / 创建新配置"
   fi
   listen_display="$(planned_listen_value)"
 
   if ! { exec 3<>/dev/tty; } 2>/dev/null; then
-    die "confirmation requires a TTY; set ASSUME_YES=1 for non-interactive use"
+    die "confirmation requires a TTY; set ASSUME_YES=1 for non-interactive use / 确认操作需要 TTY；非交互执行请设置 ASSUME_YES=1"
   fi
 
   {
-    printf '\nSnell v6 install plan:\n'
-    printf '  Action: %s\n' "${relation}"
-    printf '  CPU arch: %s\n' "${ARCH}"
-    printf '  Installed version: %s\n' "${installed_display}"
-    printf '  Target version: %s\n' "${target_version}"
-    printf '  Download URL: %s\n' "${url}"
-    printf '  Binary symlink: %s\n' "${CURRENT_BIN}"
-    printf '  Config file: %s\n' "${CONFIG_FILE}"
-    printf '  Config action: %s\n' "${config_display}"
-    printf '  Listen: %s\n' "${listen_display}"
-    printf '  Service: %s\n' "${SERVICE_NAME}"
-    printf '\nProceed? [y/N] '
+    printf '\nSnell v6 install plan / Snell v6 安装计划:\n'
+    printf '  Action / 操作: %s\n' "${relation_display}"
+    printf '  CPU arch / CPU 架构: %s\n' "${ARCH}"
+    printf '  Installed version / 已安装版本: %s\n' "${installed_display}"
+    printf '  Target version / 目标版本: %s\n' "${target_version}"
+    printf '  Download URL / 下载地址: %s\n' "${url}"
+    printf '  Binary symlink / 二进制软链接: %s\n' "${CURRENT_BIN}"
+    printf '  Config file / 配置文件: %s\n' "${CONFIG_FILE}"
+    printf '  Config action / 配置动作: %s\n' "${config_display}"
+    printf '  Listen / 监听地址: %s\n' "${listen_display}"
+    printf '  Service / 服务名: %s\n' "${SERVICE_NAME}"
+    printf '\nProceed? / 是否继续？[y/N] '
   } >&3
 
   IFS= read -r answer <&3 || answer=""
   exec 3>&- 3<&-
 
   if [[ "${answer}" != "y" && "${answer}" != "Y" && "${answer}" != "yes" && "${answer}" != "YES" ]]; then
-    die "cancelled by user"
+    die "cancelled by user / 用户已取消"
   fi
 }
 

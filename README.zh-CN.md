@@ -31,7 +31,7 @@
 curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | sudo bash
 ```
 
-安装器会在修改服务前进行确认，并显示检测到的 CPU 架构、当前已安装版本、目标版本、下载 URL 和计划监听地址。如果当前版本解析不到，会显示 `unknown`。首次安装时还会询问监听端口，默认是 `7177`。
+安装器会在修改服务前进行中英双语确认，并显示检测到的 CPU 架构、当前已安装版本、目标版本、下载 URL 和计划监听地址。如果当前版本解析不到，会显示 `unknown / 未知`。首次安装时还会用中英双语询问监听端口，默认是 `7177`。
 
 指定安装 `v6.0.0b2`：
 

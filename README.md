@@ -35,6 +35,14 @@ If `VERSION` is omitted, the script fetches the official Snell release notes and
 
 The automatic resolver only considers downloads available for the current CPU architecture. It also refuses downgrades by default when `/opt/snell/bin/snell-server-v6` already points to a higher version. For multi-server deployments, pin `VERSION` explicitly so every server uses the same Snell build.
 
+The script is not tied to a single beta. It supports any official Snell v6 server build that follows the upstream download naming, including `v6.0.0b1`, `v6.0.0b2`, `v6.0.0b3`, later betas, and later stable releases such as `v6.0.0`, as long as the package exists for the selected CPU architecture.
+
+Typical upgrade paths use the same one-command installer:
+
+- Any older Snell v6 beta to the latest detected beta or stable build: run the default one-liner.
+- A pinned beta or stable build: set `VERSION=...` explicitly.
+- A downgrade to an older build: set `ALLOW_DOWNGRADE=1`, and use `CONFIG_OVERWRITE=1` only when the older build does not support a config key already present in your config.
+
 ## CPU architecture
 
 The script detects the current CPU automatically. You can also override it with `ARCH`:

@@ -73,7 +73,7 @@ Actions:
 
 Environment variables:
   VERSION=auto              Detect the latest v6 release from official release notes.
-  VERSION=v6.0.0b3         Install a specific beta build.
+  VERSION=v6.0.0b3         Install a specific beta build; b1/b2/b3/future betas are supported when published.
   VERSION=v6.0.0           Install a specific stable build.
   ARCH=auto                 Detect CPU arch automatically.
   ARCH=amd64                Override CPU arch. Also accepts x86_64, i386, arm64, aarch64, armv7l.

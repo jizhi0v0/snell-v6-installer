@@ -60,6 +60,14 @@ curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/sn
 
 自动解析只会考虑当前 CPU 架构可下载的包。如果 `/opt/snell/bin/snell-server-v6` 已经指向更高版本，脚本默认会拒绝降级。多台服务器批量部署时，建议显式指定 `VERSION`，确保所有服务器使用同一个 Snell 构建。
 
+脚本不是只为某一个 beta 写死的。只要官方包沿用当前下载命名规则，并且当前 CPU 架构有对应包，就支持 Snell v6 的 `v6.0.0b1`、`v6.0.0b2`、`v6.0.0b3`、后续 beta，以及后续正式版，例如 `v6.0.0`。
+
+常见升级路径都使用同一个一键安装脚本：
+
+- 从任意旧 Snell v6 beta 升级到当前自动解析到的最新 beta 或正式版：直接运行默认一键命令。
+- 固定安装某个 beta 或正式版：显式设置 `VERSION=...`。
+- 有意降级到旧版本：设置 `ALLOW_DOWNGRADE=1`；如果旧版本不支持当前配置里的某个配置项，再配合 `CONFIG_OVERWRITE=1` 让脚本安全重写配置。
+
 ## CPU 架构
 
 默认会自动读取当前机器架构。也可以用 `ARCH` 手动指定：

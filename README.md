@@ -280,7 +280,7 @@ The suite covers version ordering, downgrade refusal, port validation, listen pa
 - `MODE` is only written for Snell `v6.0.0b3+`. If an existing config contains `mode = ...`, the script refuses to install an older target version unless `CONFIG_OVERWRITE=1` is set so the unsupported line can be removed safely.
 - When writing a config, ports must be in the `1` to `65535` range. New ports that are already listening are rejected before download or service changes.
 - IPv6 listen values such as `[::]:7177` must be explicit via `LISTEN`, and the script rejects them when IPv6 appears disabled locally.
-- `CONFIG_OVERWRITE=1` rewrites the config after creating a timestamped backup, preserves unspecified existing values such as `psk`, `dns`, and `egress-interface`, and restores the previous config if the service cannot restart with the rewritten config.
+- `CONFIG_OVERWRITE=1` rewrites the config after creating a timestamped backup, preserves unspecified existing values such as `psk`, `dns`, and `egress-interface`, keeps unrecognized config lines such as `shadow-tls`, and restores the previous config if the service cannot restart with the rewritten config.
 - Existing service files are backed up before replacement.
 - If a service restart fails after switching to a new binary, the script attempts to roll the binary symlink back to the previous version.
 

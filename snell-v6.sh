@@ -949,6 +949,7 @@ write_config() {
   local final_egress_interface="${EGRESS_INTERFACE}"
   local final_mode="${MODE}"
   local existing_listen existing_psk existing_dns_ip_preference existing_dns_servers existing_egress_interface existing_mode
+  local include_mode=0 has_dns_servers=0 has_egress_interface=0
   local tmp
 
   [[ -n "${TARGET_VERSION}" ]] || die "target version is required before writing config"
@@ -979,24 +980,86 @@ write_config() {
   if version_supports_mode "${TARGET_VERSION}"; then
     [[ -n "${final_mode}" ]] || final_mode="default"
     validate_mode "${final_mode}"
+    include_mode=1
   fi
+  [[ -n "${final_dns_servers}" ]] && has_dns_servers=1
+  [[ -n "${final_egress_interface}" ]] && has_egress_interface=1
 
   tmp="$(mktemp)"
-  {
-    printf '[snell-server]\n'
-    printf 'listen = %s\n' "${final_listen}"
-    printf 'psk = %s\n' "${final_psk}"
-    if version_supports_mode "${TARGET_VERSION}"; then
-      printf 'mode = %s\n' "${final_mode}"
-    fi
-    printf 'dns-ip-preference = %s\n' "${final_dns_ip_preference}"
-    if [[ -n "${final_dns_servers}" ]]; then
-      printf 'dns = %s\n' "${final_dns_servers}"
-    fi
-    if [[ -n "${final_egress_interface}" ]]; then
-      printf 'egress-interface = %s\n' "${final_egress_interface}"
-    fi
-  } >"${tmp}"
+  if [[ -f "${CONFIG_FILE}" ]]; then
+    awk \
+      -v listen="${final_listen}" \
+      -v psk="${final_psk}" \
+      -v mode="${final_mode}" \
+      -v include_mode="${include_mode}" \
+      -v dns_ip_preference="${final_dns_ip_preference}" \
+      -v dns_servers="${final_dns_servers}" \
+      -v has_dns_servers="${has_dns_servers}" \
+      -v egress_interface="${final_egress_interface}" \
+      -v has_egress_interface="${has_egress_interface}" '
+        function is_section_header(line) {
+          return line ~ /^[[:space:]]*\[[^]]+\][[:space:]]*$/
+        }
+        function is_snell_server_header(line) {
+          return line ~ /^[[:space:]]*\[snell-server\][[:space:]]*$/
+        }
+        function is_managed_key(line) {
+          return line ~ /^[[:space:]]*(listen|psk|mode|dns-ip-preference|dns|egress-interface)[[:space:]]*=/
+        }
+        function print_managed_keys() {
+          print "listen = " listen
+          print "psk = " psk
+          if (include_mode == 1) {
+            print "mode = " mode
+          }
+          print "dns-ip-preference = " dns_ip_preference
+          if (has_dns_servers == 1) {
+            print "dns = " dns_servers
+          }
+          if (has_egress_interface == 1) {
+            print "egress-interface = " egress_interface
+          }
+        }
+        is_snell_server_header($0) {
+          seen_snell_server = 1
+          in_snell_server = 1
+          print
+          print_managed_keys()
+          next
+        }
+        is_section_header($0) {
+          in_snell_server = 0
+        }
+        in_snell_server && is_managed_key($0) {
+          next
+        }
+        {
+          print
+        }
+        END {
+          if (seen_snell_server != 1) {
+            print "[snell-server]"
+            print_managed_keys()
+          }
+        }
+      ' "${CONFIG_FILE}" >"${tmp}"
+  else
+    {
+      printf '[snell-server]\n'
+      printf 'listen = %s\n' "${final_listen}"
+      printf 'psk = %s\n' "${final_psk}"
+      if [[ "${include_mode}" -eq 1 ]]; then
+        printf 'mode = %s\n' "${final_mode}"
+      fi
+      printf 'dns-ip-preference = %s\n' "${final_dns_ip_preference}"
+      if [[ "${has_dns_servers}" -eq 1 ]]; then
+        printf 'dns = %s\n' "${final_dns_servers}"
+      fi
+      if [[ "${has_egress_interface}" -eq 1 ]]; then
+        printf 'egress-interface = %s\n' "${final_egress_interface}"
+      fi
+    } >"${tmp}"
+  fi
 
   install -d -m 755 "${CONF_DIR}"
   backup_config_file

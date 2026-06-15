@@ -273,6 +273,11 @@ test_b2_to_b3_update_migrates_default_mode() (
 
   with_temp_install_root "${tmp}"
   write_existing_config "127.0.0.1:1111"
+  {
+    printf 'shadow-tls = enabled\n'
+    printf '[shadow-tls]\n'
+    printf 'enabled = true\n'
+  } >>"${CONFIG_FILE}"
   ARCH=amd64
   VERSION=v6.0.0b3
   ASSUME_YES=1
@@ -288,6 +293,9 @@ test_b2_to_b3_update_migrates_default_mode() (
 
   grep -qx 'psk = keep-me' "${CONFIG_FILE}" || fail "b2 to b3 mode migration should preserve existing config"
   grep -qx 'mode = default' "${CONFIG_FILE}" || fail "b2 to b3 update should explicitly write default mode"
+  grep -qx 'shadow-tls = enabled' "${CONFIG_FILE}" || fail "mode migration should preserve unknown config keys"
+  grep -qx '\[shadow-tls\]' "${CONFIG_FILE}" || fail "mode migration should preserve unknown sections"
+  grep -qx 'enabled = true' "${CONFIG_FILE}" || fail "mode migration should preserve unknown section values"
   [[ -n "${CONFIG_BACKUP_PATH}" && -f "${CONFIG_BACKUP_PATH}" ]] || fail "mode migration should back up existing config"
 )
 
@@ -309,6 +317,32 @@ test_b2_to_b3_update_allows_explicit_default_mode_migration() (
   write_config >/dev/null
 
   grep -qx 'mode = default' "${CONFIG_FILE}" || fail "explicit MODE=default should be allowed during mode migration"
+)
+
+test_beta3_reinstall_preserves_mode_and_unknown_config_without_overwrite() (
+  local tmp
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "${tmp}"' EXIT
+
+  with_temp_install_root "${tmp}"
+  write_existing_config "127.0.0.1:1111" "unshaped"
+  printf 'shadow-tls = enabled\n' >>"${CONFIG_FILE}"
+  ARCH=amd64
+  VERSION=v6.0.0b3
+  ASSUME_YES=1
+  source_installer_functions
+  port_is_listening() { fail "port check should not run when preserving config"; }
+  chown() { return 0; }
+  chmod() { return 0; }
+
+  current_installed_path() { printf '%s/snell-server-v6.0.0b3\n' "${RELEASES_DIR}"; }
+
+  assert_eq "reinstall" "$(version_relation "$(current_installed_version)" v6.0.0b3)" "b3 to b3 should be a reinstall"
+  prepare_config_inputs v6.0.0b3
+  write_config >/dev/null
+
+  grep -qx 'mode = unshaped' "${CONFIG_FILE}" || fail "b3 reinstall should preserve existing mode"
+  grep -qx 'shadow-tls = enabled' "${CONFIG_FILE}" || fail "b3 reinstall should preserve unknown config keys"
 )
 
 test_existing_invalid_mode_rejected_for_supported_target() (
@@ -403,6 +437,7 @@ test_beta3_config_overwrite_applies_explicit_mode() (
 
   with_temp_install_root "${tmp}"
   write_existing_config "127.0.0.1:1111" "default"
+  printf 'shadow-tls = enabled\n' >>"${CONFIG_FILE}"
   ARCH=amd64
   VERSION=v6.0.0b3
   MODE=unshaped
@@ -418,6 +453,7 @@ test_beta3_config_overwrite_applies_explicit_mode() (
 
   grep -qx 'mode = unshaped' "${CONFIG_FILE}" || fail "explicit MODE should rewrite mode"
   grep -qx 'psk = keep-me' "${CONFIG_FILE}" || fail "mode rewrite should preserve PSK"
+  grep -qx 'shadow-tls = enabled' "${CONFIG_FILE}" || fail "mode rewrite should preserve unknown config keys"
 )
 
 test_beta3_config_overwrite_preserves_existing_mode() (
@@ -637,6 +673,7 @@ main() {
   test_normal_update_requires_overwrite_for_explicit_mode
   test_b2_to_b3_update_migrates_default_mode
   test_b2_to_b3_update_allows_explicit_default_mode_migration
+  test_beta3_reinstall_preserves_mode_and_unknown_config_without_overwrite
   test_existing_invalid_mode_rejected_for_supported_target
   test_normal_update_reports_existing_listen_without_overwrite
   test_config_overwrite_applies_explicit_port_and_preserves_values

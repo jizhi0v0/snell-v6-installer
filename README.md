@@ -63,6 +63,11 @@ Snell `v6.0.0b3` adds a server mode setting. The script supports these values wi
 
 The server and client modes must match. `MODE` requires Snell `v6.0.0b3` or newer. On first install with `v6.0.0b3+`, the script asks for the mode interactively and writes `mode = default` when no mode is selected. Existing configs are preserved during normal updates, so a `v6.0.0b2` to `v6.0.0b3` update does not add `mode = default`; Snell's default mode applies implicitly. To write or change the mode on an installed server, use `CONFIG_OVERWRITE=1 MODE=...`.
 
+Client versions required for Snell `v6.0.0b3`:
+
+- Surge iOS: `5.102.0 (3731)` or newer
+- Surge macOS: `6.7.0-11380` or newer
+
 ## Requirements
 
 - Linux VPS

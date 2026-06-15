@@ -114,6 +114,102 @@ chmod +x ./snell-v6.sh
 sudo ./snell-v6.sh
 ```
 
+## Default config
+
+Default config path:
+
+```bash
+/opt/snell/conf/snell-server-v6.conf
+```
+
+First install with `v6.0.0b3+` writes a config like this:
+
+```ini
+[snell-server]
+listen = 0.0.0.0:7177
+psk = randomly generated 32-character hex string
+mode = default
+dns-ip-preference = default
+```
+
+Surge node example:
+
+```ini
+Snell-V6 = snell, your-server-ip-or-domain, 7177, psk=the-psk-from-config, version=6
+```
+
+View the current server config:
+
+```bash
+sudo cat /opt/snell/conf/snell-server-v6.conf
+```
+
+## Config Evolution
+
+These examples describe the default config written by this installer. They are not the full list of every Snell option. Unknown or manually added config lines are preserved during script-managed rewrites.
+
+<details>
+<summary><code>v6.0.0b3</code> and newer</summary>
+
+Default config:
+
+```ini
+[snell-server]
+listen = 0.0.0.0:7177
+psk = randomly generated 32-character hex string
+mode = default
+dns-ip-preference = default
+```
+
+New config key:
+
+- `mode`: added in `v6.0.0b3`. Supported values are `default`, `unshaped`, and `unsafe-raw`.
+
+Upgrade behavior:
+
+- Updating an older config to `v6.0.0b3+` backs up the config and writes `mode = default` explicitly.
+- Non-default modes require `CONFIG_OVERWRITE=1 MODE=...`.
+
+</details>
+
+<details>
+<summary><code>v6.0.0b2</code></summary>
+
+Default config:
+
+```ini
+[snell-server]
+listen = 0.0.0.0:7177
+psk = randomly generated 32-character hex string
+dns-ip-preference = default
+```
+
+Relevant config behavior:
+
+- `mode` is not supported before `v6.0.0b3`.
+- Snell v6 adds IPv4/IPv6 network stack controls such as `dns-ip-preference` and multi-address `listen`.
+
+</details>
+
+<details>
+<summary><code>v6.0.0b1</code> or other pinned pre-b3 builds</summary>
+
+Default config written by the script follows the pre-`mode` layout:
+
+```ini
+[snell-server]
+listen = 0.0.0.0:7177
+psk = randomly generated 32-character hex string
+dns-ip-preference = default
+```
+
+Notes:
+
+- The current official release notes do not list a separate `v6.0.0b1` entry.
+- Prefer `v6.0.0b2+` unless you intentionally pin an older package for testing.
+
+</details>
+
 ## Common examples
 
 Install the latest detected v6 build:

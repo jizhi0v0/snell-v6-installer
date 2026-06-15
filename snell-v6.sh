@@ -34,12 +34,18 @@ PSK="${PSK:-}"
 DNS_IP_PREFERENCE="${DNS_IP_PREFERENCE:-}"
 DNS_SERVERS="${DNS_SERVERS:-}"
 EGRESS_INTERFACE="${EGRESS_INTERFACE:-}"
+MODE_EXPLICIT=0
+if [[ -n "${MODE+x}" && -n "${MODE:-}" ]]; then
+  MODE_EXPLICIT=1
+fi
+MODE="${MODE:-}"
 AUTO_INSTALL_DEPS="${AUTO_INSTALL_DEPS:-1}"
 MANAGE_FIREWALL="${MANAGE_FIREWALL:-auto}"
 CONFIG_OVERWRITE="${CONFIG_OVERWRITE:-0}"
 ALLOW_DOWNGRADE="${ALLOW_DOWNGRADE:-0}"
 ASSUME_YES="${ASSUME_YES:-0}"
 CONFIG_BACKUP_PATH=""
+TARGET_VERSION="${TARGET_VERSION:-${VERSION}}"
 
 ACTION="${1:-apply}"
 
@@ -67,7 +73,7 @@ Actions:
 
 Environment variables:
   VERSION=auto              Detect the latest v6 release from official release notes.
-  VERSION=v6.0.0b2         Install a specific beta build.
+  VERSION=v6.0.0b3         Install a specific beta build.
   VERSION=v6.0.0           Install a specific stable build.
   ARCH=auto                 Detect CPU arch automatically.
   ARCH=amd64                Override CPU arch. Also accepts x86_64, i386, arm64, aarch64, armv7l.
@@ -77,6 +83,7 @@ Environment variables:
   DNS_IP_PREFERENCE=default
   DNS_SERVERS=1.1.1.1,8.8.8.8
   EGRESS_INTERFACE=eth0
+  MODE=default             Snell v6.0.0b3+ mode: default, unshaped, or unsafe-raw.
   CONFIG_OVERWRITE=1       Rewrite the config file on update, preserving unspecified values.
   ALLOW_DOWNGRADE=0        Refuse automatic downgrades by default.
   ASSUME_YES=0             Prompt before install/update. Set to 1 for automation.
@@ -244,6 +251,92 @@ planned_listen_value() {
   printf '0.0.0.0:%s\n' "${PORT}"
 }
 
+is_valid_mode() {
+  case "$1" in
+    default|unshaped|unsafe-raw)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+validate_mode() {
+  local mode="$1"
+
+  is_valid_mode "${mode}" || die "invalid MODE '${mode}'; expected default, unshaped, or unsafe-raw"
+}
+
+version_supports_mode() {
+  local version="$1"
+  local version_key minimum_key
+
+  version_key="$(version_sort_key "${version}")"
+  minimum_key="$(version_sort_key "v6.0.0b3")"
+  [[ "${version_key}" > "${minimum_key}" || "${version_key}" == "${minimum_key}" ]]
+}
+
+planned_mode_value() {
+  local target_version="$1"
+  local existing_mode
+
+  version_supports_mode "${target_version}" || return 0
+
+  if [[ -f "${CONFIG_FILE}" ]] && ! is_truthy "${CONFIG_OVERWRITE}"; then
+    existing_mode="$(config_value "mode")"
+    if [[ -n "${existing_mode}" ]]; then
+      printf '%s\n' "${existing_mode}"
+      return 0
+    fi
+
+    printf 'default\n'
+    return 0
+  fi
+
+  if [[ -n "${MODE}" ]]; then
+    printf '%s\n' "${MODE}"
+    return 0
+  fi
+
+  existing_mode="$(config_value "mode")"
+  if [[ -n "${existing_mode}" ]]; then
+    printf '%s\n' "${existing_mode}"
+    return 0
+  fi
+
+  printf 'default\n'
+}
+
+planned_mode_display() {
+  local target_version="$1"
+  local existing_mode planned_mode
+
+  if ! version_supports_mode "${target_version}"; then
+    printf 'not written; requires v6.0.0b3+ / 不写入；需要 v6.0.0b3+\n'
+    return 0
+  fi
+
+  if [[ -f "${CONFIG_FILE}" ]] && ! is_truthy "${CONFIG_OVERWRITE}"; then
+    existing_mode="$(config_value "mode")"
+    if [[ -n "${existing_mode}" ]]; then
+      printf '%s (preserved / 保留)\n' "${existing_mode}"
+      return 0
+    fi
+
+    printf 'default (implicit; config preserved / 默认隐式；配置保留)\n'
+    return 0
+  fi
+
+  planned_mode="$(planned_mode_value "${target_version}")"
+  if [[ "${planned_mode}" == "default" && -z "$(config_value "mode")" && -z "${MODE}" ]]; then
+    printf 'default (implicit) / 默认（隐式）\n'
+    return 0
+  fi
+
+  printf '%s\n' "${planned_mode}"
+}
+
 prompt_for_config_port() {
   local existing_listen answer default_port
 
@@ -284,6 +377,64 @@ prompt_for_config_port() {
     fi
 
     printf 'Invalid port. Please enter an integer from 1 to 65535. / 端口无效，请输入 1 到 65535 之间的整数。\n' >&3
+  done
+}
+
+prompt_for_config_mode() {
+  local target_version="$1"
+  local existing_mode answer
+
+  version_supports_mode "${target_version}" || return 0
+  is_truthy "${ASSUME_YES}" && return 0
+  can_prompt || return 0
+  [[ "${MODE_EXPLICIT}" -eq 1 ]] && return 0
+
+  existing_mode="$(config_value "mode")"
+
+  if ! { exec 3<>/dev/tty; } 2>/dev/null; then
+    return 0
+  fi
+
+  {
+    printf '\nSnell v6 mode / Snell v6 模式:\n'
+    printf '  1. default / 默认：obfuscation + AES / 启用混淆和 AES 加密\n'
+    printf '  2. unshaped：AES only / 仅 AES，加密流量看起来完全随机\n'
+    printf '  3. unsafe-raw：plaintext / 明文转发，仅限安全内网或安全隧道内\n'
+  } >&3
+
+  while true; do
+    if [[ -n "${existing_mode}" ]]; then
+      printf 'Mode / 模式 [keep current / 保持当前: %s]: ' "${existing_mode}" >&3
+    else
+      printf 'Mode / 模式 [1, default / 默认]: ' >&3
+    fi
+
+    IFS= read -r answer <&3 || answer=""
+    answer="$(trim_value "${answer}")"
+
+    if [[ -z "${answer}" && -n "${existing_mode}" ]]; then
+      exec 3>&- 3<&-
+      return 0
+    fi
+
+    case "${answer:-1}" in
+      1|default)
+        MODE="default"
+        ;;
+      2|unshaped)
+        MODE="unshaped"
+        ;;
+      3|unsafe-raw)
+        MODE="unsafe-raw"
+        ;;
+      *)
+        printf 'Invalid mode. Choose 1/default, 2/unshaped, or 3/unsafe-raw. / 模式无效，请选择 1/default、2/unshaped 或 3/unsafe-raw。\n' >&3
+        continue
+        ;;
+    esac
+
+    exec 3>&- 3<&-
+    return 0
   done
 }
 
@@ -347,9 +498,22 @@ ensure_planned_ports_available() {
 }
 
 prepare_config_inputs() {
-  local listen
+  local target_version="${1:-${TARGET_VERSION}}"
+  local listen existing_mode planned_mode
 
-  config_will_be_written || return 0
+  [[ -n "${target_version}" ]] || die "target version is required before preparing config"
+
+  existing_mode="$(config_value "mode")"
+  if [[ -n "${existing_mode}" ]] && ! version_supports_mode "${target_version}"; then
+    die "existing config has mode=${existing_mode}, but ${target_version} does not support mode; use v6.0.0b3+ or remove mode from the config"
+  fi
+
+  if ! config_will_be_written; then
+    if [[ "${MODE_EXPLICIT}" -eq 1 ]]; then
+      die "MODE only changes an existing config when CONFIG_OVERWRITE=1; current config will otherwise be preserved"
+    fi
+    return 0
+  fi
 
   if [[ "${LISTEN_EXPLICIT}" -eq 1 ]]; then
     validate_listen_value "${LISTEN}"
@@ -368,6 +532,19 @@ prepare_config_inputs() {
   listen="$(planned_listen_value)"
   validate_listen_value "${listen}"
   ensure_planned_ports_available "${listen}"
+
+  if [[ "${MODE_EXPLICIT}" -eq 1 ]]; then
+    validate_mode "${MODE}"
+    if ! version_supports_mode "${target_version}"; then
+      die "MODE requires Snell v6.0.0b3 or newer; target version is ${target_version}"
+    fi
+  fi
+
+  prompt_for_config_mode "${target_version}"
+  planned_mode="$(planned_mode_value "${target_version}")"
+  if [[ -n "${planned_mode}" ]]; then
+    validate_mode "${planned_mode}"
+  fi
 }
 
 install_deps() {
@@ -599,7 +776,7 @@ display_relation() {
 confirm_apply() {
   local target_version="$1"
   local url="$2"
-  local installed_path installed_version installed_display relation relation_display config_display listen_display answer
+  local installed_path installed_version installed_display relation relation_display config_display listen_display mode_display answer
 
   if is_truthy "${ASSUME_YES}"; then
     return 0
@@ -633,6 +810,7 @@ confirm_apply() {
     config_display="create new config / 创建新配置"
   fi
   listen_display="$(planned_listen_value)"
+  mode_display="$(planned_mode_display "${target_version}")"
 
   if ! { exec 3<>/dev/tty; } 2>/dev/null; then
     die "confirmation requires a TTY; set ASSUME_YES=1 for non-interactive use / 确认操作需要 TTY；非交互执行请设置 ASSUME_YES=1"
@@ -649,6 +827,7 @@ confirm_apply() {
     printf '  Config file / 配置文件: %s\n' "${CONFIG_FILE}"
     printf '  Config action / 配置动作: %s\n' "${config_display}"
     printf '  Listen / 监听地址: %s\n' "${listen_display}"
+    printf '  Mode / 模式: %s\n' "${mode_display}"
     printf '  Service / 服务名: %s\n' "${SERVICE_NAME}"
     printf '\nProceed? / 是否继续？[y/N] '
   } >&3
@@ -735,7 +914,8 @@ write_config() {
   local final_dns_ip_preference="${DNS_IP_PREFERENCE}"
   local final_dns_servers="${DNS_SERVERS}"
   local final_egress_interface="${EGRESS_INTERFACE}"
-  local existing_listen existing_psk existing_dns_ip_preference existing_dns_servers existing_egress_interface
+  local final_mode="${MODE}"
+  local existing_listen existing_psk existing_dns_ip_preference existing_dns_servers existing_egress_interface existing_mode
   local tmp
 
   if [[ -f "${CONFIG_FILE}" ]] && ! is_truthy "${CONFIG_OVERWRITE}"; then
@@ -743,11 +923,14 @@ write_config() {
     return 0
   fi
 
+  [[ -n "${TARGET_VERSION}" ]] || die "target version is required before writing config"
+
   existing_listen="$(config_value "listen")"
   existing_psk="$(config_value "psk")"
   existing_dns_ip_preference="$(config_value "dns-ip-preference")"
   existing_dns_servers="$(config_value "dns")"
   existing_egress_interface="$(config_value "egress-interface")"
+  existing_mode="$(config_value "mode")"
 
   [[ -n "${final_listen}" ]] || final_listen="${existing_listen}"
   [[ -n "${final_listen}" ]] || final_listen="0.0.0.0:${PORT}"
@@ -757,12 +940,20 @@ write_config() {
   [[ -n "${final_dns_ip_preference}" ]] || final_dns_ip_preference="default"
   [[ -n "${final_dns_servers}" ]] || final_dns_servers="${existing_dns_servers}"
   [[ -n "${final_egress_interface}" ]] || final_egress_interface="${existing_egress_interface}"
+  [[ -n "${final_mode}" ]] || final_mode="${existing_mode}"
+  if version_supports_mode "${TARGET_VERSION}"; then
+    [[ -n "${final_mode}" ]] || final_mode="default"
+    validate_mode "${final_mode}"
+  fi
 
   tmp="$(mktemp)"
   {
     printf '[snell-server]\n'
     printf 'listen = %s\n' "${final_listen}"
     printf 'psk = %s\n' "${final_psk}"
+    if version_supports_mode "${TARGET_VERSION}"; then
+      printf 'mode = %s\n' "${final_mode}"
+    fi
     printf 'dns-ip-preference = %s\n' "${final_dns_ip_preference}"
     if [[ -n "${final_dns_servers}" ]]; then
       printf 'dns = %s\n' "${final_dns_servers}"
@@ -947,9 +1138,10 @@ apply() {
 
   url="$(resolve_download_url)"
   version="$(resolve_version "${url}")"
+  TARGET_VERSION="${version}"
   ensure_download_available "${url}" "${version}"
   ensure_not_downgrade "${version}"
-  prepare_config_inputs
+  prepare_config_inputs "${version}"
   confirm_apply "${version}" "${url}"
 
   previous_path="$(current_installed_path)"

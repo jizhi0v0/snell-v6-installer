@@ -28,7 +28,7 @@ It keeps the runtime path stable at `/opt/snell/bin/snell-server-v6`, while stor
 
 The script supports both beta and stable Snell v6 naming:
 
-- `VERSION=v6.0.0b2`
+- `VERSION=v6.0.0b3`
 - `VERSION=v6.0.0`
 
 If `VERSION` is omitted, the script fetches the official Snell release notes and resolves the latest available `v6` build for the current CPU architecture.
@@ -45,13 +45,23 @@ The script detects the current CPU automatically. You can also override it with 
 
 Common aliases also work: `x86_64`, `i686`, and `arm64`.
 
-For Snell `v6.0.0b2`, the official downloads are:
+For Snell `v6.0.0b3`, the official downloads are:
 
 ```text
-https://dl.nssurge.com/snell/snell-server-v6.0.0b2-linux-amd64.zip
-https://dl.nssurge.com/snell/snell-server-v6.0.0b2-linux-i386.zip
-https://dl.nssurge.com/snell/snell-server-v6.0.0b2-linux-aarch64.zip
+https://dl.nssurge.com/snell/snell-server-v6.0.0b3-linux-amd64.zip
+https://dl.nssurge.com/snell/snell-server-v6.0.0b3-linux-i386.zip
+https://dl.nssurge.com/snell/snell-server-v6.0.0b3-linux-aarch64.zip
 ```
+
+## Mode handling
+
+Snell `v6.0.0b3` adds a server mode setting. The script supports these values with `MODE`:
+
+- `MODE=default`: default mode, traffic obfuscation plus AES encryption.
+- `MODE=unshaped`: disables obfuscation and keeps AES encryption only. This can improve throughput by about 10% compared with the default mode.
+- `MODE=unsafe-raw`: disables both encryption and obfuscation. Traffic is forwarded in plaintext and should only be used inside a trusted private network or another secure tunnel.
+
+The server and client modes must match. `MODE` requires Snell `v6.0.0b3` or newer. On first install with `v6.0.0b3+`, the script asks for the mode interactively and writes `mode = default` when no mode is selected. Existing configs are preserved during normal updates, so changing the mode on an installed server requires `CONFIG_OVERWRITE=1 MODE=...`.
 
 ## Requirements
 
@@ -70,18 +80,18 @@ Install or update with one command:
 curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | sudo bash
 ```
 
-The installer prompts in both English and Chinese before changing the service. It shows the detected CPU architecture, current installed version when available, target version, download URL, and planned listen address. On first install, it also asks for the listen port and defaults to `7177`.
+The installer prompts in both English and Chinese before changing the service. It shows the detected CPU architecture, current installed version when available, target version, download URL, planned listen address, and Snell mode. On first install, it also asks for the listen port and mode. The default port is `7177`, and the default mode is `default`.
 
 Install a specific version with one command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | sudo env VERSION=v6.0.0b2 bash
+curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | sudo env VERSION=v6.0.0b3 bash
 ```
 
 Run without an interactive confirmation:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | sudo env ASSUME_YES=1 VERSION=v6.0.0b2 bash
+curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | sudo env ASSUME_YES=1 VERSION=v6.0.0b3 bash
 ```
 
 If you are running from a cloned repo:
@@ -102,15 +112,15 @@ sudo ./snell-v6.sh
 Install a specific beta:
 
 ```bash
-sudo env VERSION=v6.0.0b2 ./snell-v6.sh
+sudo env VERSION=v6.0.0b3 ./snell-v6.sh
 ```
 
 Install a specific beta for a specific CPU:
 
 ```bash
-sudo env VERSION=v6.0.0b2 ARCH=amd64 ./snell-v6.sh
-sudo env VERSION=v6.0.0b2 ARCH=i386 ./snell-v6.sh
-sudo env VERSION=v6.0.0b2 ARCH=aarch64 ./snell-v6.sh
+sudo env VERSION=v6.0.0b3 ARCH=amd64 ./snell-v6.sh
+sudo env VERSION=v6.0.0b3 ARCH=i386 ./snell-v6.sh
+sudo env VERSION=v6.0.0b3 ARCH=aarch64 ./snell-v6.sh
 ```
 
 Install a future stable build:
@@ -143,6 +153,24 @@ Rewrite the config during an upgrade:
 sudo env CONFIG_OVERWRITE=1 LISTEN='0.0.0.0:7177,[::]:7177' ./snell-v6.sh
 ```
 
+Set the Snell `v6.0.0b3+` mode on first install:
+
+```bash
+sudo env VERSION=v6.0.0b3 MODE=unshaped ./snell-v6.sh
+```
+
+Change the mode on an installed server by rewriting the config:
+
+```bash
+sudo env CONFIG_OVERWRITE=1 MODE=unshaped ./snell-v6.sh
+```
+
+Only use `MODE=unsafe-raw` inside a trusted private network or another secure tunnel:
+
+```bash
+sudo env CONFIG_OVERWRITE=1 MODE=unsafe-raw ./snell-v6.sh
+```
+
 When `CONFIG_OVERWRITE=1` is used, existing values are preserved unless you explicitly override them. For example, changing `LISTEN` keeps the existing `psk`.
 The previous config is backed up before being rewritten.
 When the script writes a config, it validates the listen port, checks whether newly selected TCP ports already appear to be listening, and rejects IPv6 listen values if IPv6 appears disabled on the host.
@@ -162,7 +190,7 @@ Print the currently installed version:
 Print the CPU architectures available for a version:
 
 ```bash
-VERSION=v6.0.0b2 ./snell-v6.sh arches
+VERSION=v6.0.0b3 ./snell-v6.sh arches
 ```
 
 Print the resolved download URL:
@@ -180,7 +208,7 @@ sudo env VERSION=v6.0.0b2 ALLOW_DOWNGRADE=1 ./snell-v6.sh
 Skip the confirmation prompt for automation:
 
 ```bash
-sudo env ASSUME_YES=1 VERSION=v6.0.0b2 ./snell-v6.sh
+sudo env ASSUME_YES=1 VERSION=v6.0.0b3 ./snell-v6.sh
 ```
 
 ## Installed paths
@@ -221,13 +249,14 @@ Run the local regression suite:
 ./tests/snell-v6-regression.sh
 ```
 
-The suite covers version ordering, downgrade refusal, port validation, listen parsing, IPv6 rejection, occupied-port detection, config preservation, failed-config restore, and binary rollback.
+The suite covers version ordering, downgrade refusal, port validation, listen parsing, IPv6 rejection, occupied-port detection, mode validation, config preservation, failed-config restore, and binary rollback.
 
 ## Notes
 
 - The script only manages `ufw` when `ufw` is already installed. It does not enable `ufw`.
 - Existing config content is preserved by default. The script may normalize its ownership and mode to `root:snell 640` so the service user can read it.
-- Existing configs are not modified during normal updates. `PORT`, `LISTEN`, `PSK`, `DNS_SERVERS`, and similar config values only affect first install or `CONFIG_OVERWRITE=1`.
+- Existing configs are not modified during normal updates. `PORT`, `LISTEN`, `PSK`, `DNS_SERVERS`, `MODE`, and similar config values only affect first install or `CONFIG_OVERWRITE=1`.
+- `MODE` is only written for Snell `v6.0.0b3+`. If an existing config contains `mode = ...`, the script refuses to install an older target version that does not support it.
 - When writing a config, ports must be in the `1` to `65535` range. New ports that are already listening are rejected before download or service changes.
 - IPv6 listen values such as `[::]:7177` must be explicit via `LISTEN`, and the script rejects them when IPv6 appears disabled locally.
 - `CONFIG_OVERWRITE=1` rewrites the config after creating a timestamped backup, preserves unspecified existing values such as `psk`, `dns`, and `egress-interface`, and restores the previous config if the service cannot restart with the rewritten config.

@@ -35,25 +35,25 @@
 curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | sudo bash
 ```
 
-安装器会在修改服务前进行中英双语确认，并显示检测到的 CPU 架构、当前已安装版本、目标版本、下载 URL 和计划监听地址。如果当前版本解析不到，会显示 `unknown / 未知`。首次安装时还会用中英双语询问监听端口，默认是 `7177`。
+安装器会在修改服务前进行中英双语确认，并显示检测到的 CPU 架构、当前已安装版本、目标版本、下载 URL、计划监听地址和 Snell 模式。如果当前版本解析不到，会显示 `unknown / 未知`。首次安装 `v6.0.0b3+` 时还会用中英双语询问监听端口和模式，端口默认是 `7177`，模式默认是 `default`。
 
-指定安装 `v6.0.0b2`：
+指定安装 `v6.0.0b3`：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | sudo env VERSION=v6.0.0b2 bash
+curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | sudo env VERSION=v6.0.0b3 bash
 ```
 
 无人值守执行时：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | sudo env ASSUME_YES=1 VERSION=v6.0.0b2 bash
+curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | sudo env ASSUME_YES=1 VERSION=v6.0.0b3 bash
 ```
 
 ## 版本
 
 脚本兼容 beta 和正式版命名：
 
-- `VERSION=v6.0.0b2`
+- `VERSION=v6.0.0b3`
 - `VERSION=v6.0.0`
 
 如果不指定 `VERSION`，脚本会从官方 Snell release notes 中自动解析当前 CPU 架构可用的最新 `v6` 版本。
@@ -70,19 +70,29 @@ curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/sn
 
 常见别名也支持：`x86_64`、`i686`、`arm64`。
 
-Snell `v6.0.0b2` 官方目前提供这些包：
+Snell `v6.0.0b3` 官方目前提供这些包：
 
 ```text
-https://dl.nssurge.com/snell/snell-server-v6.0.0b2-linux-amd64.zip
-https://dl.nssurge.com/snell/snell-server-v6.0.0b2-linux-i386.zip
-https://dl.nssurge.com/snell/snell-server-v6.0.0b2-linux-aarch64.zip
+https://dl.nssurge.com/snell/snell-server-v6.0.0b3-linux-amd64.zip
+https://dl.nssurge.com/snell/snell-server-v6.0.0b3-linux-i386.zip
+https://dl.nssurge.com/snell/snell-server-v6.0.0b3-linux-aarch64.zip
 ```
 
 查看某个版本有哪些 CPU 包：
 
 ```bash
-VERSION=v6.0.0b2 ./snell-v6.sh arches
+VERSION=v6.0.0b3 ./snell-v6.sh arches
 ```
+
+## Snell 模式
+
+Snell `v6.0.0b3` 新增了服务器模式。脚本支持通过 `MODE` 设置：
+
+- `MODE=default`：默认模式，启用流量混淆和 AES 加密。
+- `MODE=unshaped`：禁用混淆，仅使用 AES 加密。相比默认模式，吞吐量性能可提高约 10%。
+- `MODE=unsafe-raw`：禁用加密和混淆，明文转发所有流量。只应在可信内网或另一个安全隧道下使用。
+
+服务端和客户端模式必须一致。`MODE` 只支持 Snell `v6.0.0b3+`。首次安装 `v6.0.0b3+` 时脚本会交互式询问模式；无人值守或直接回车时默认写入 `mode = default`。普通更新默认保留已有配置，不会修改模式；如果要修改已安装服务的模式，需要使用 `CONFIG_OVERWRITE=1 MODE=...`。
 
 ## 默认配置
 
@@ -98,6 +108,7 @@ VERSION=v6.0.0b2 ./snell-v6.sh arches
 [snell-server]
 listen = 0.0.0.0:7177
 psk = 随机生成的32位十六进制字符串
+mode = default
 dns-ip-preference = default
 ```
 
@@ -118,7 +129,7 @@ sudo cat /opt/snell/conf/snell-server-v6.conf
 安装指定 beta：
 
 ```bash
-sudo env VERSION=v6.0.0b2 ./snell-v6.sh
+sudo env VERSION=v6.0.0b3 ./snell-v6.sh
 ```
 
 安装未来正式版：
@@ -137,6 +148,24 @@ sudo env PORT=7177 PSK='replace-with-your-own-psk' ./snell-v6.sh
 
 ```bash
 sudo env CONFIG_OVERWRITE=1 LISTEN='0.0.0.0:7177,[::]:7177' ./snell-v6.sh
+```
+
+首次安装时指定 Snell `v6.0.0b3+` 模式：
+
+```bash
+sudo env VERSION=v6.0.0b3 MODE=unshaped ./snell-v6.sh
+```
+
+已安装服务需要通过重写配置来修改模式：
+
+```bash
+sudo env CONFIG_OVERWRITE=1 MODE=unshaped ./snell-v6.sh
+```
+
+`unsafe-raw` 会明文转发流量，只应在可信内网或另一个安全隧道下使用：
+
+```bash
+sudo env CONFIG_OVERWRITE=1 MODE=unsafe-raw ./snell-v6.sh
 ```
 
 使用 `CONFIG_OVERWRITE=1` 时，脚本会保留你没有显式覆盖的旧值。比如只修改 `LISTEN`，旧的 `psk` 会继续保留。
@@ -176,7 +205,7 @@ sudo env VERSION=v6.0.0b2 ALLOW_DOWNGRADE=1 ./snell-v6.sh
 跳过交互确认：
 
 ```bash
-sudo env ASSUME_YES=1 VERSION=v6.0.0b2 ./snell-v6.sh
+sudo env ASSUME_YES=1 VERSION=v6.0.0b3 ./snell-v6.sh
 ```
 
 ## 卸载
@@ -201,7 +230,7 @@ curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/sn
 ./tests/snell-v6-regression.sh
 ```
 
-测试覆盖版本排序、拒绝误降级、端口校验、监听地址解析、IPv6 不可用时拒绝、端口占用检测、配置保留、失败配置恢复和二进制回滚。
+测试覆盖版本排序、拒绝误降级、端口校验、监听地址解析、IPv6 不可用时拒绝、端口占用检测、模式校验、配置保留、失败配置恢复和二进制回滚。
 
 ## 已安装路径
 
@@ -223,7 +252,8 @@ sudo systemctl restart snell-v6
 
 - 脚本只会在系统已经安装 `ufw` 时尝试添加或删除端口规则，不会主动启用 `ufw`。
 - 已有配置内容默认会保留。脚本可能会把配置权限修正为 `root:snell 640`，让 `snell` 服务用户可以读取。
-- 普通更新不会修改已有配置。`PORT`、`LISTEN`、`PSK`、`DNS_SERVERS` 等配置参数只会在首次安装或 `CONFIG_OVERWRITE=1` 时生效。
+- 普通更新不会修改已有配置。`PORT`、`LISTEN`、`PSK`、`DNS_SERVERS`、`MODE` 等配置参数只会在首次安装或 `CONFIG_OVERWRITE=1` 时生效。
+- `MODE` 只会写入 Snell `v6.0.0b3+` 配置。如果已有配置包含 `mode = ...`，脚本会拒绝安装不支持该配置项的旧目标版本。
 - 写入配置时，端口必须在 `1` 到 `65535` 范围内。新选择的端口如果已经被监听，脚本会在下载和修改服务前退出。
 - IPv6 监听例如 `[::]:7177` 必须通过 `LISTEN` 显式配置；如果脚本检测到本机 IPv6 不可用，会拒绝该配置。
 - `CONFIG_OVERWRITE=1` 会先创建带时间戳的配置备份再重写，并保留未显式覆盖的旧值，例如 `psk`、`dns`、`egress-interface`；如果重写后的配置导致服务无法重启，会恢复旧配置。

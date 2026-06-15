@@ -108,11 +108,17 @@ with_temp_install_root() {
 }
 
 write_existing_config() {
+  local listen="$1"
+  local mode="${2:-}"
+
   mkdir -p "${CONF_DIR}"
   {
     printf '[snell-server]\n'
-    printf 'listen = %s\n' "$1"
+    printf 'listen = %s\n' "${listen}"
     printf 'psk = keep-me\n'
+    if [[ -n "${mode}" ]]; then
+      printf 'mode = %s\n' "${mode}"
+    fi
     printf 'dns-ip-preference = ipv4-only\n'
     printf 'dns = 1.1.1.1\n'
     printf 'egress-interface = eth9\n'
@@ -174,6 +180,21 @@ test_listen_validation() (
   if (validate_listen_value "[::]:7177") >/dev/null 2>&1; then fail "IPv6 listen should fail when IPv6 is unavailable"; fi
 )
 
+test_mode_validation_and_version_gate() (
+  ARCH=amd64
+  VERSION=v6.0.0b3
+  ASSUME_YES=1
+  source_installer_functions
+
+  validate_mode default
+  validate_mode unshaped
+  validate_mode unsafe-raw
+  if (validate_mode raw) >/dev/null 2>&1; then fail "invalid mode should be rejected"; fi
+  version_supports_mode v6.0.0b3
+  version_supports_mode v6.0.0
+  if (version_supports_mode v6.0.0b2) >/dev/null 2>&1; then fail "beta2 should not support mode"; fi
+)
+
 test_first_install_port_preparation() (
   local tmp
   tmp="$(mktemp -d)"
@@ -208,6 +229,41 @@ test_normal_update_ignores_port_without_overwrite() (
 
   prepare_config_inputs
   assert_eq "" "${LISTEN}" "normal update should not apply PORT to existing config"
+)
+
+test_normal_update_rejects_mode_when_target_does_not_support_it() (
+  local tmp
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "${tmp}"' EXIT
+
+  with_temp_install_root "${tmp}"
+  write_existing_config "127.0.0.1:1111" "unshaped"
+  ARCH=amd64
+  VERSION=v6.0.0b2
+  ASSUME_YES=1
+  source_installer_functions
+
+  if (prepare_config_inputs v6.0.0b2) >/dev/null 2>&1; then
+    fail "target beta2 should reject an existing mode config"
+  fi
+)
+
+test_normal_update_requires_overwrite_for_explicit_mode() (
+  local tmp
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "${tmp}"' EXIT
+
+  with_temp_install_root "${tmp}"
+  write_existing_config "127.0.0.1:1111"
+  ARCH=amd64
+  VERSION=v6.0.0b3
+  MODE=unshaped
+  ASSUME_YES=1
+  source_installer_functions
+
+  if (prepare_config_inputs v6.0.0b3) >/dev/null 2>&1; then
+    fail "explicit MODE should require CONFIG_OVERWRITE=1 when config already exists"
+  fi
 )
 
 test_normal_update_reports_existing_listen_without_overwrite() (
@@ -255,6 +311,71 @@ test_config_overwrite_applies_explicit_port_and_preserves_values() (
   grep -qx 'dns = 1.1.1.1' "${CONFIG_FILE}" || fail "dns should be preserved"
   grep -qx 'egress-interface = eth9' "${CONFIG_FILE}" || fail "egress-interface should be preserved"
   [[ -n "${CONFIG_BACKUP_PATH}" && -f "${CONFIG_BACKUP_PATH}" ]] || fail "config backup should be recorded"
+)
+
+test_beta3_first_install_writes_default_mode() (
+  local tmp
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "${tmp}"' EXIT
+
+  with_temp_install_root "${tmp}"
+  ARCH=amd64
+  VERSION=v6.0.0b3
+  PORT=2222
+  ASSUME_YES=1
+  source_installer_functions
+  mock_install_command
+  service_is_active() { return 1; }
+  port_is_listening() { return 1; }
+
+  prepare_config_inputs v6.0.0b3
+  write_config >/dev/null
+
+  grep -qx 'mode = default' "${CONFIG_FILE}" || fail "beta3 first install should write default mode"
+)
+
+test_beta3_config_overwrite_applies_explicit_mode() (
+  local tmp
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "${tmp}"' EXIT
+
+  with_temp_install_root "${tmp}"
+  write_existing_config "127.0.0.1:1111" "default"
+  ARCH=amd64
+  VERSION=v6.0.0b3
+  MODE=unshaped
+  CONFIG_OVERWRITE=1
+  ASSUME_YES=1
+  source_installer_functions
+  mock_install_command
+  service_is_active() { return 0; }
+  port_is_listening() { return 1; }
+
+  prepare_config_inputs v6.0.0b3
+  write_config >/dev/null
+
+  grep -qx 'mode = unshaped' "${CONFIG_FILE}" || fail "explicit MODE should rewrite mode"
+  grep -qx 'psk = keep-me' "${CONFIG_FILE}" || fail "mode rewrite should preserve PSK"
+)
+
+test_mode_requires_beta3_when_writing_config() (
+  local tmp
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "${tmp}"' EXIT
+
+  with_temp_install_root "${tmp}"
+  ARCH=amd64
+  VERSION=v6.0.0b2
+  MODE=unshaped
+  PORT=2222
+  ASSUME_YES=1
+  source_installer_functions
+  service_is_active() { return 1; }
+  port_is_listening() { return 1; }
+
+  if (prepare_config_inputs v6.0.0b2) >/dev/null 2>&1; then
+    fail "MODE should require beta3 or newer when writing config"
+  fi
 )
 
 test_first_install_rejects_occupied_port() (
@@ -387,10 +508,16 @@ main() {
   test_bilingual_relation_labels
   test_port_validation
   test_listen_validation
+  test_mode_validation_and_version_gate
   test_first_install_port_preparation
   test_normal_update_ignores_port_without_overwrite
+  test_normal_update_rejects_mode_when_target_does_not_support_it
+  test_normal_update_requires_overwrite_for_explicit_mode
   test_normal_update_reports_existing_listen_without_overwrite
   test_config_overwrite_applies_explicit_port_and_preserves_values
+  test_beta3_first_install_writes_default_mode
+  test_beta3_config_overwrite_applies_explicit_mode
+  test_mode_requires_beta3_when_writing_config
   test_first_install_rejects_occupied_port
   test_active_service_same_port_is_not_false_positive
   test_changed_port_conflict_is_rejected

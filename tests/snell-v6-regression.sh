@@ -266,7 +266,7 @@ test_normal_update_requires_overwrite_for_explicit_mode() (
   fi
 )
 
-test_b2_to_b3_update_preserves_config_without_writing_mode() (
+test_b2_to_b3_update_migrates_default_mode() (
   local tmp
   tmp="$(mktemp -d)"
   trap 'rm -rf "${tmp}"' EXIT
@@ -278,8 +278,7 @@ test_b2_to_b3_update_preserves_config_without_writing_mode() (
   ASSUME_YES=1
   source_installer_functions
   port_is_listening() { fail "port check should not run when preserving config"; }
-  chown() { return 0; }
-  chmod() { return 0; }
+  mock_install_command
 
   current_installed_path() { printf '%s/snell-server-v6.0.0b2\n' "${RELEASES_DIR}"; }
 
@@ -287,11 +286,29 @@ test_b2_to_b3_update_preserves_config_without_writing_mode() (
   prepare_config_inputs v6.0.0b3
   write_config >/dev/null
 
-  grep -qx 'psk = keep-me' "${CONFIG_FILE}" || fail "b2 to b3 update should preserve existing config"
-  if grep -q '^mode[[:space:]]*=' "${CONFIG_FILE}"; then
-    fail "normal b2 to b3 update should not write mode without CONFIG_OVERWRITE=1"
-  fi
-  grep -q 'Snell default mode applies' <<<"$(planned_mode_display v6.0.0b3)" || fail "plan should explain implicit default mode"
+  grep -qx 'psk = keep-me' "${CONFIG_FILE}" || fail "b2 to b3 mode migration should preserve existing config"
+  grep -qx 'mode = default' "${CONFIG_FILE}" || fail "b2 to b3 update should explicitly write default mode"
+  [[ -n "${CONFIG_BACKUP_PATH}" && -f "${CONFIG_BACKUP_PATH}" ]] || fail "mode migration should back up existing config"
+)
+
+test_b2_to_b3_update_allows_explicit_default_mode_migration() (
+  local tmp
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "${tmp}"' EXIT
+
+  with_temp_install_root "${tmp}"
+  write_existing_config "127.0.0.1:1111"
+  ARCH=amd64
+  VERSION=v6.0.0b3
+  MODE=default
+  ASSUME_YES=1
+  source_installer_functions
+  mock_install_command
+
+  prepare_config_inputs v6.0.0b3
+  write_config >/dev/null
+
+  grep -qx 'mode = default' "${CONFIG_FILE}" || fail "explicit MODE=default should be allowed during mode migration"
 )
 
 test_existing_invalid_mode_rejected_for_supported_target() (
@@ -618,7 +635,8 @@ main() {
   test_normal_update_ignores_port_without_overwrite
   test_normal_update_rejects_mode_when_target_does_not_support_it
   test_normal_update_requires_overwrite_for_explicit_mode
-  test_b2_to_b3_update_preserves_config_without_writing_mode
+  test_b2_to_b3_update_migrates_default_mode
+  test_b2_to_b3_update_allows_explicit_default_mode_migration
   test_existing_invalid_mode_rejected_for_supported_target
   test_normal_update_reports_existing_listen_without_overwrite
   test_config_overwrite_applies_explicit_port_and_preserves_values

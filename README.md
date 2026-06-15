@@ -61,7 +61,7 @@ Snell `v6.0.0b3` adds a server mode setting. The script supports these values wi
 - `MODE=unshaped`: disables obfuscation and keeps AES encryption only. This can improve throughput by about 10% compared with the default mode.
 - `MODE=unsafe-raw`: disables both encryption and obfuscation. Traffic is forwarded in plaintext and should only be used inside a trusted private network or another secure tunnel.
 
-The server and client modes must match. `MODE` requires Snell `v6.0.0b3` or newer. On first install with `v6.0.0b3+`, the script asks for the mode interactively and writes `mode = default` when no mode is selected. Existing configs are preserved during normal updates, so a `v6.0.0b2` to `v6.0.0b3` update does not add `mode = default`; Snell's default mode applies implicitly. To write or change the mode on an installed server, use `CONFIG_OVERWRITE=1 MODE=...`.
+The server and client modes must match. `MODE` requires Snell `v6.0.0b3` or newer. On first install with `v6.0.0b3+`, the script asks for the mode interactively and writes `mode = default` when no mode is selected. When updating an older config to `v6.0.0b3+`, the script backs up the config and writes `mode = default` explicitly because `mode` is new in `v6.0.0b3`. To change the mode on an installed server to a non-default value, use `CONFIG_OVERWRITE=1 MODE=...`.
 
 Client versions required for Snell `v6.0.0b3`:
 
@@ -262,13 +262,13 @@ Run the local regression suite:
 ./tests/snell-v6-regression.sh
 ```
 
-The suite covers version ordering, downgrade refusal, port validation, listen parsing, IPv6 rejection, occupied-port detection, mode validation, `v6.0.0b2` to `v6.0.0b3` updates, `v6.0.0b3` to `v6.0.0b2` downgrades, config preservation, failed-config restore, and binary rollback.
+The suite covers version ordering, downgrade refusal, port validation, listen parsing, IPv6 rejection, occupied-port detection, mode validation, `v6.0.0b2` to `v6.0.0b3` mode migration, `v6.0.0b3` to `v6.0.0b2` downgrades, config preservation, failed-config restore, and binary rollback.
 
 ## Notes
 
 - The script only manages `ufw` when `ufw` is already installed. It does not enable `ufw`.
 - Existing config content is preserved by default. The script may normalize its ownership and mode to `root:snell 640` so the service user can read it.
-- Existing configs are not modified during normal updates. `PORT`, `LISTEN`, `PSK`, `DNS_SERVERS`, `MODE`, and similar config values only affect first install or `CONFIG_OVERWRITE=1`.
+- Existing configs are not modified during normal updates, except that updating an older config to `v6.0.0b3+` adds `mode = default` with a timestamped backup. `PORT`, `LISTEN`, `PSK`, `DNS_SERVERS`, `MODE`, and similar config values otherwise only affect first install or `CONFIG_OVERWRITE=1`.
 - `MODE` is only written for Snell `v6.0.0b3+`. If an existing config contains `mode = ...`, the script refuses to install an older target version unless `CONFIG_OVERWRITE=1` is set so the unsupported line can be removed safely.
 - When writing a config, ports must be in the `1` to `65535` range. New ports that are already listening are rejected before download or service changes.
 - IPv6 listen values such as `[::]:7177` must be explicit via `LISTEN`, and the script rejects them when IPv6 appears disabled locally.

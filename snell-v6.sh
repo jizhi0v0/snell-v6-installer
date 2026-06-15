@@ -277,6 +277,18 @@ version_supports_mode() {
   [[ "${version_key}" > "${minimum_key}" || "${version_key}" == "${minimum_key}" ]]
 }
 
+mode_default_migration_needed() {
+  local target_version="$1"
+  local existing_mode
+
+  [[ -f "${CONFIG_FILE}" ]] || return 1
+  is_truthy "${CONFIG_OVERWRITE}" && return 1
+  version_supports_mode "${target_version}" || return 1
+
+  existing_mode="$(config_value "mode")"
+  [[ -z "${existing_mode}" ]]
+}
+
 planned_mode_value() {
   local target_version="$1"
   local existing_mode
@@ -329,7 +341,7 @@ planned_mode_display() {
       return 0
     fi
 
-    printf 'not written; Snell default mode applies / 不写入；Snell 默认 default 生效\n'
+    printf 'default (new in v6.0.0b3; will be written / v6.0.0b3 新增；将写入)\n'
     return 0
   fi
 
@@ -518,6 +530,16 @@ prepare_config_inputs() {
   fi
 
   if ! config_will_be_written; then
+    if mode_default_migration_needed "${target_version}"; then
+      if [[ "${MODE_EXPLICIT}" -eq 1 ]]; then
+        validate_mode "${MODE}"
+        if [[ "${MODE}" != "default" ]]; then
+          die "MODE=${MODE} changes an existing config and requires CONFIG_OVERWRITE=1; automatic v6.0.0b3 migration only writes mode=default"
+        fi
+      fi
+      return 0
+    fi
+
     if [[ "${MODE_EXPLICIT}" -eq 1 ]]; then
       die "MODE only changes an existing config when CONFIG_OVERWRITE=1; current config will otherwise be preserved"
     fi
@@ -811,7 +833,9 @@ confirm_apply() {
   fi
   relation_display="$(display_relation "${relation}")"
 
-  if [[ -f "${CONFIG_FILE}" ]] && is_truthy "${CONFIG_OVERWRITE}"; then
+  if mode_default_migration_needed "${target_version}"; then
+    config_display="add mode=default for v6.0.0b3+, preserving other values / 为 v6.0.0b3+ 补写 mode=default，保留其他值"
+  elif [[ -f "${CONFIG_FILE}" ]] && is_truthy "${CONFIG_OVERWRITE}"; then
     config_display="rewrite existing config, preserving unspecified values / 重写已有配置，保留未显式覆盖的值"
   elif [[ -f "${CONFIG_FILE}" ]]; then
     config_display="preserve existing config, normalize permissions / 保留已有配置，仅修正权限"
@@ -927,12 +951,14 @@ write_config() {
   local existing_listen existing_psk existing_dns_ip_preference existing_dns_servers existing_egress_interface existing_mode
   local tmp
 
-  if [[ -f "${CONFIG_FILE}" ]] && ! is_truthy "${CONFIG_OVERWRITE}"; then
+  [[ -n "${TARGET_VERSION}" ]] || die "target version is required before writing config"
+
+  if [[ -f "${CONFIG_FILE}" ]] \
+    && ! is_truthy "${CONFIG_OVERWRITE}" \
+    && ! mode_default_migration_needed "${TARGET_VERSION}"; then
     ensure_config_permissions
     return 0
   fi
-
-  [[ -n "${TARGET_VERSION}" ]] || die "target version is required before writing config"
 
   existing_listen="$(config_value "listen")"
   existing_psk="$(config_value "psk")"

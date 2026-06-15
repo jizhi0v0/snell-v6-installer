@@ -92,7 +92,7 @@ Snell `v6.0.0b3` 新增了服务器模式。脚本支持通过 `MODE` 设置：
 - `MODE=unshaped`：禁用混淆，仅使用 AES 加密。相比默认模式，吞吐量性能可提高约 10%。
 - `MODE=unsafe-raw`：禁用加密和混淆，明文转发所有流量。只应在可信内网或另一个安全隧道下使用。
 
-服务端和客户端模式必须一致。`MODE` 只支持 Snell `v6.0.0b3+`。首次安装 `v6.0.0b3+` 时脚本会交互式询问模式；无人值守或直接回车时默认写入 `mode = default`。普通更新默认保留已有配置，不会修改模式；如果要修改已安装服务的模式，需要使用 `CONFIG_OVERWRITE=1 MODE=...`。
+服务端和客户端模式必须一致。`MODE` 只支持 Snell `v6.0.0b3+`。首次安装 `v6.0.0b3+` 时脚本会交互式询问模式；无人值守或直接回车时默认写入 `mode = default`。普通更新默认保留已有配置，所以从 `v6.0.0b2` 升级到 `v6.0.0b3` 不会自动补写 `mode = default`，Snell 会按默认模式隐式生效。如果要在已安装服务上写入或修改模式，需要使用 `CONFIG_OVERWRITE=1 MODE=...`。
 
 ## 默认配置
 
@@ -202,6 +202,14 @@ sudo env DNS_IP_PREFERENCE=prefer-ipv4 ./snell-v6.sh
 sudo env VERSION=v6.0.0b2 ALLOW_DOWNGRADE=1 ./snell-v6.sh
 ```
 
+从 `v6.0.0b3+` 降级到不支持 `mode` 的版本：
+
+```bash
+sudo env VERSION=v6.0.0b2 ALLOW_DOWNGRADE=1 CONFIG_OVERWRITE=1 ./snell-v6.sh
+```
+
+这会先备份配置，再重写配置并移除旧版本不支持的 `mode` 行。如果不加 `CONFIG_OVERWRITE=1`，脚本会拒绝让 `v6.0.0b2` 或更旧版本继续使用包含 `mode` 的配置。
+
 跳过交互确认：
 
 ```bash
@@ -230,7 +238,7 @@ curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/sn
 ./tests/snell-v6-regression.sh
 ```
 
-测试覆盖版本排序、拒绝误降级、端口校验、监听地址解析、IPv6 不可用时拒绝、端口占用检测、模式校验、配置保留、失败配置恢复和二进制回滚。
+测试覆盖版本排序、拒绝误降级、端口校验、监听地址解析、IPv6 不可用时拒绝、端口占用检测、模式校验、`v6.0.0b2` 升级到 `v6.0.0b3`、`v6.0.0b3` 降级到 `v6.0.0b2`、配置保留、失败配置恢复和二进制回滚。
 
 ## 已安装路径
 
@@ -253,7 +261,7 @@ sudo systemctl restart snell-v6
 - 脚本只会在系统已经安装 `ufw` 时尝试添加或删除端口规则，不会主动启用 `ufw`。
 - 已有配置内容默认会保留。脚本可能会把配置权限修正为 `root:snell 640`，让 `snell` 服务用户可以读取。
 - 普通更新不会修改已有配置。`PORT`、`LISTEN`、`PSK`、`DNS_SERVERS`、`MODE` 等配置参数只会在首次安装或 `CONFIG_OVERWRITE=1` 时生效。
-- `MODE` 只会写入 Snell `v6.0.0b3+` 配置。如果已有配置包含 `mode = ...`，脚本会拒绝安装不支持该配置项的旧目标版本。
+- `MODE` 只会写入 Snell `v6.0.0b3+` 配置。如果已有配置包含 `mode = ...`，脚本会拒绝安装不支持该配置项的旧目标版本，除非使用 `CONFIG_OVERWRITE=1` 安全移除不兼容配置行。
 - 写入配置时，端口必须在 `1` 到 `65535` 范围内。新选择的端口如果已经被监听，脚本会在下载和修改服务前退出。
 - IPv6 监听例如 `[::]:7177` 必须通过 `LISTEN` 显式配置；如果脚本检测到本机 IPv6 不可用，会拒绝该配置。
 - `CONFIG_OVERWRITE=1` 会先创建带时间戳的配置备份再重写，并保留未显式覆盖的旧值，例如 `psk`、`dns`、`egress-interface`；如果重写后的配置导致服务无法重启，会恢复旧配置。

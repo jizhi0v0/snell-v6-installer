@@ -266,6 +266,51 @@ test_normal_update_requires_overwrite_for_explicit_mode() (
   fi
 )
 
+test_b2_to_b3_update_preserves_config_without_writing_mode() (
+  local tmp
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "${tmp}"' EXIT
+
+  with_temp_install_root "${tmp}"
+  write_existing_config "127.0.0.1:1111"
+  ARCH=amd64
+  VERSION=v6.0.0b3
+  ASSUME_YES=1
+  source_installer_functions
+  port_is_listening() { fail "port check should not run when preserving config"; }
+  chown() { return 0; }
+  chmod() { return 0; }
+
+  current_installed_path() { printf '%s/snell-server-v6.0.0b2\n' "${RELEASES_DIR}"; }
+
+  assert_eq "update" "$(version_relation "$(current_installed_version)" v6.0.0b3)" "b2 to b3 should be an update"
+  prepare_config_inputs v6.0.0b3
+  write_config >/dev/null
+
+  grep -qx 'psk = keep-me' "${CONFIG_FILE}" || fail "b2 to b3 update should preserve existing config"
+  if grep -q '^mode[[:space:]]*=' "${CONFIG_FILE}"; then
+    fail "normal b2 to b3 update should not write mode without CONFIG_OVERWRITE=1"
+  fi
+  grep -q 'Snell default mode applies' <<<"$(planned_mode_display v6.0.0b3)" || fail "plan should explain implicit default mode"
+)
+
+test_existing_invalid_mode_rejected_for_supported_target() (
+  local tmp
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "${tmp}"' EXIT
+
+  with_temp_install_root "${tmp}"
+  write_existing_config "127.0.0.1:1111" "raw"
+  ARCH=amd64
+  VERSION=v6.0.0b3
+  ASSUME_YES=1
+  source_installer_functions
+
+  if (prepare_config_inputs v6.0.0b3) >/dev/null 2>&1; then
+    fail "invalid existing mode should be rejected before restart"
+  fi
+)
+
 test_normal_update_reports_existing_listen_without_overwrite() (
   local tmp
   tmp="$(mktemp -d)"
@@ -358,6 +403,29 @@ test_beta3_config_overwrite_applies_explicit_mode() (
   grep -qx 'psk = keep-me' "${CONFIG_FILE}" || fail "mode rewrite should preserve PSK"
 )
 
+test_beta3_config_overwrite_preserves_existing_mode() (
+  local tmp
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "${tmp}"' EXIT
+
+  with_temp_install_root "${tmp}"
+  write_existing_config "127.0.0.1:1111" "unsafe-raw"
+  ARCH=amd64
+  VERSION=v6.0.0b3
+  CONFIG_OVERWRITE=1
+  ASSUME_YES=1
+  source_installer_functions
+  mock_install_command
+  service_is_active() { return 0; }
+  port_is_listening() { return 1; }
+
+  prepare_config_inputs v6.0.0b3
+  write_config >/dev/null
+
+  grep -qx 'mode = unsafe-raw' "${CONFIG_FILE}" || fail "config rewrite should preserve existing mode when MODE is not set"
+  grep -qx 'psk = keep-me' "${CONFIG_FILE}" || fail "mode-preserving rewrite should keep PSK"
+)
+
 test_mode_requires_beta3_when_writing_config() (
   local tmp
   tmp="$(mktemp -d)"
@@ -375,6 +443,43 @@ test_mode_requires_beta3_when_writing_config() (
 
   if (prepare_config_inputs v6.0.0b2) >/dev/null 2>&1; then
     fail "MODE should require beta3 or newer when writing config"
+  fi
+)
+
+test_beta3_to_b2_downgrade_guard_and_mode_rewrite() (
+  local tmp
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "${tmp}"' EXIT
+
+  with_temp_install_root "${tmp}"
+  write_existing_config "127.0.0.1:1111" "unshaped"
+  ARCH=amd64
+  VERSION=v6.0.0b2
+  ASSUME_YES=1
+  source_installer_functions
+  current_installed_path() { printf '%s/snell-server-v6.0.0b3\n' "${RELEASES_DIR}"; }
+
+  if (ensure_not_downgrade v6.0.0b2) >/dev/null 2>&1; then
+    fail "b3 to b2 should be refused without ALLOW_DOWNGRADE=1"
+  fi
+
+  ALLOW_DOWNGRADE=1
+  ensure_not_downgrade v6.0.0b2
+
+  if (prepare_config_inputs v6.0.0b2) >/dev/null 2>&1; then
+    fail "b3 to b2 with mode config should require CONFIG_OVERWRITE=1"
+  fi
+
+  CONFIG_OVERWRITE=1
+  service_is_active() { return 0; }
+  port_is_listening() { return 1; }
+  mock_install_command
+  prepare_config_inputs v6.0.0b2
+  write_config >/dev/null
+
+  grep -qx 'psk = keep-me' "${CONFIG_FILE}" || fail "downgrade rewrite should preserve PSK"
+  if grep -q '^mode[[:space:]]*=' "${CONFIG_FILE}"; then
+    fail "downgrade rewrite to beta2 should remove unsupported mode"
   fi
 )
 
@@ -513,11 +618,15 @@ main() {
   test_normal_update_ignores_port_without_overwrite
   test_normal_update_rejects_mode_when_target_does_not_support_it
   test_normal_update_requires_overwrite_for_explicit_mode
+  test_b2_to_b3_update_preserves_config_without_writing_mode
+  test_existing_invalid_mode_rejected_for_supported_target
   test_normal_update_reports_existing_listen_without_overwrite
   test_config_overwrite_applies_explicit_port_and_preserves_values
   test_beta3_first_install_writes_default_mode
   test_beta3_config_overwrite_applies_explicit_mode
+  test_beta3_config_overwrite_preserves_existing_mode
   test_mode_requires_beta3_when_writing_config
+  test_beta3_to_b2_downgrade_guard_and_mode_rewrite
   test_first_install_rejects_occupied_port
   test_active_service_same_port_is_not_false_positive
   test_changed_port_conflict_is_rejected

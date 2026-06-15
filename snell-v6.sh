@@ -313,6 +313,11 @@ planned_mode_display() {
   local existing_mode planned_mode
 
   if ! version_supports_mode "${target_version}"; then
+    if [[ -f "${CONFIG_FILE}" ]] && is_truthy "${CONFIG_OVERWRITE}" && [[ -n "$(config_value "mode")" ]]; then
+      printf 'removed on config rewrite; target does not support mode / 重写配置时移除；目标版本不支持 mode\n'
+      return 0
+    fi
+
     printf 'not written; requires v6.0.0b3+ / 不写入；需要 v6.0.0b3+\n'
     return 0
   fi
@@ -324,7 +329,7 @@ planned_mode_display() {
       return 0
     fi
 
-    printf 'default (implicit; config preserved / 默认隐式；配置保留)\n'
+    printf 'not written; Snell default mode applies / 不写入；Snell 默认 default 生效\n'
     return 0
   fi
 
@@ -504,8 +509,12 @@ prepare_config_inputs() {
   [[ -n "${target_version}" ]] || die "target version is required before preparing config"
 
   existing_mode="$(config_value "mode")"
-  if [[ -n "${existing_mode}" ]] && ! version_supports_mode "${target_version}"; then
-    die "existing config has mode=${existing_mode}, but ${target_version} does not support mode; use v6.0.0b3+ or remove mode from the config"
+  if [[ -n "${existing_mode}" ]]; then
+    if version_supports_mode "${target_version}"; then
+      validate_mode "${existing_mode}"
+    elif ! is_truthy "${CONFIG_OVERWRITE}"; then
+      die "existing config has mode=${existing_mode}, but ${target_version} does not support mode; downgrade with ALLOW_DOWNGRADE=1 CONFIG_OVERWRITE=1 to rewrite the config without mode, or remove mode manually"
+    fi
   fi
 
   if ! config_will_be_written; then

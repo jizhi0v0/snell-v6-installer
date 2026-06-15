@@ -61,7 +61,7 @@ Snell `v6.0.0b3` adds a server mode setting. The script supports these values wi
 - `MODE=unshaped`: disables obfuscation and keeps AES encryption only. This can improve throughput by about 10% compared with the default mode.
 - `MODE=unsafe-raw`: disables both encryption and obfuscation. Traffic is forwarded in plaintext and should only be used inside a trusted private network or another secure tunnel.
 
-The server and client modes must match. `MODE` requires Snell `v6.0.0b3` or newer. On first install with `v6.0.0b3+`, the script asks for the mode interactively and writes `mode = default` when no mode is selected. Existing configs are preserved during normal updates, so changing the mode on an installed server requires `CONFIG_OVERWRITE=1 MODE=...`.
+The server and client modes must match. `MODE` requires Snell `v6.0.0b3` or newer. On first install with `v6.0.0b3+`, the script asks for the mode interactively and writes `mode = default` when no mode is selected. Existing configs are preserved during normal updates, so a `v6.0.0b2` to `v6.0.0b3` update does not add `mode = default`; Snell's default mode applies implicitly. To write or change the mode on an installed server, use `CONFIG_OVERWRITE=1 MODE=...`.
 
 ## Requirements
 
@@ -205,6 +205,14 @@ Allow an intentional downgrade:
 sudo env VERSION=v6.0.0b2 ALLOW_DOWNGRADE=1 ./snell-v6.sh
 ```
 
+Downgrade from `v6.0.0b3+` to a version that does not support `mode`:
+
+```bash
+sudo env VERSION=v6.0.0b2 ALLOW_DOWNGRADE=1 CONFIG_OVERWRITE=1 ./snell-v6.sh
+```
+
+This backs up the config and rewrites it without the unsupported `mode` line. Without `CONFIG_OVERWRITE=1`, the script refuses to leave a `mode` setting in a config used by `v6.0.0b2` or older.
+
 Skip the confirmation prompt for automation:
 
 ```bash
@@ -249,14 +257,14 @@ Run the local regression suite:
 ./tests/snell-v6-regression.sh
 ```
 
-The suite covers version ordering, downgrade refusal, port validation, listen parsing, IPv6 rejection, occupied-port detection, mode validation, config preservation, failed-config restore, and binary rollback.
+The suite covers version ordering, downgrade refusal, port validation, listen parsing, IPv6 rejection, occupied-port detection, mode validation, `v6.0.0b2` to `v6.0.0b3` updates, `v6.0.0b3` to `v6.0.0b2` downgrades, config preservation, failed-config restore, and binary rollback.
 
 ## Notes
 
 - The script only manages `ufw` when `ufw` is already installed. It does not enable `ufw`.
 - Existing config content is preserved by default. The script may normalize its ownership and mode to `root:snell 640` so the service user can read it.
 - Existing configs are not modified during normal updates. `PORT`, `LISTEN`, `PSK`, `DNS_SERVERS`, `MODE`, and similar config values only affect first install or `CONFIG_OVERWRITE=1`.
-- `MODE` is only written for Snell `v6.0.0b3+`. If an existing config contains `mode = ...`, the script refuses to install an older target version that does not support it.
+- `MODE` is only written for Snell `v6.0.0b3+`. If an existing config contains `mode = ...`, the script refuses to install an older target version unless `CONFIG_OVERWRITE=1` is set so the unsupported line can be removed safely.
 - When writing a config, ports must be in the `1` to `65535` range. New ports that are already listening are rejected before download or service changes.
 - IPv6 listen values such as `[::]:7177` must be explicit via `LISTEN`, and the script rejects them when IPv6 appears disabled locally.
 - `CONFIG_OVERWRITE=1` rewrites the config after creating a timestamped backup, preserves unspecified existing values such as `psk`, `dns`, and `egress-interface`, and restores the previous config if the service cannot restart with the rewritten config.

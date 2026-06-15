@@ -107,15 +107,16 @@ Snell `v6.0.0b3` 所需客户端版本：
 - Surge iOS：`5.102.0 (3731)` 或更新版本
 - Surge macOS：`6.7.0-11380` 或更新版本
 
-## 默认配置
+<details>
+<summary>可选：配置参考</summary>
 
-默认配置文件位置：
+配置文件位置：
 
 ```bash
 /opt/snell/conf/snell-server-v6.conf
 ```
 
-首次安装默认内容类似：
+`v6.0.0b3+` 当前默认配置：
 
 ```ini
 [snell-server]
@@ -124,82 +125,18 @@ psk = 随机生成的32位十六进制字符串
 mode = default
 dns-ip-preference = default
 ```
+
+版本说明：
+
+- `v6.0.0b3+`：新增 `mode`；从旧配置升级时，脚本会补写 `mode = default`。
+- `v6.0.0b2` 和更早 v6 beta 配置：没有 `mode`。
+- 脚本重写配置时会保留未知或手动添加的配置行，例如 `shadow-tls`。
 
 对应 Surge 配置示例：
 
 ```ini
 Snell-V6 = snell, 你的IP或域名, 7177, psk=配置文件里的PSK, version=6
 ```
-
-查看当前配置：
-
-```bash
-sudo cat /opt/snell/conf/snell-server-v6.conf
-```
-
-## 配置演进
-
-下面示例是本脚本写入的默认配置，不是 Snell 支持的全部参数列表。脚本重写配置时会保留未知配置行和手动添加的配置项。
-
-<details>
-<summary><code>v6.0.0b3</code> 及更新版本</summary>
-
-默认配置：
-
-```ini
-[snell-server]
-listen = 0.0.0.0:7177
-psk = 随机生成的32位十六进制字符串
-mode = default
-dns-ip-preference = default
-```
-
-新增配置项：
-
-- `mode`：`v6.0.0b3` 新增。可选值为 `default`、`unshaped`、`unsafe-raw`。
-
-升级行为：
-
-- 从旧配置升级到 `v6.0.0b3+` 时，脚本会备份配置并显式补写 `mode = default`。
-- 如果要使用非默认模式，需要 `CONFIG_OVERWRITE=1 MODE=...`。
-
-</details>
-
-<details>
-<summary><code>v6.0.0b2</code></summary>
-
-默认配置：
-
-```ini
-[snell-server]
-listen = 0.0.0.0:7177
-psk = 随机生成的32位十六进制字符串
-dns-ip-preference = default
-```
-
-相关配置行为：
-
-- `v6.0.0b3` 之前不支持 `mode`。
-- Snell v6 增加了 IPv4/IPv6 网络栈控制，例如 `dns-ip-preference` 和多地址 `listen`。
-
-</details>
-
-<details>
-<summary><code>v6.0.0b1</code> 或其他固定安装的 pre-b3 构建</summary>
-
-脚本写入的默认配置按 pre-`mode` 布局处理：
-
-```ini
-[snell-server]
-listen = 0.0.0.0:7177
-psk = 随机生成的32位十六进制字符串
-dns-ip-preference = default
-```
-
-说明：
-
-- 当前官方 release notes 没有单独列出 `v6.0.0b1` 条目。
-- 除非你明确要固定旧包做测试，否则建议使用 `v6.0.0b2+`。
 
 </details>
 

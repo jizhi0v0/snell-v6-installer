@@ -274,7 +274,9 @@ version_supports_mode() {
 
   version_key="$(version_sort_key "${version}")"
   minimum_key="$(version_sort_key "v6.0.0b3")"
-  [[ "${version_key}" > "${minimum_key}" || "${version_key}" == "${minimum_key}" ]]
+  # Sort keys are fixed-width, zero-padded digits and dots, so lexical
+  # comparison matches numeric order regardless of locale; this is version >= minimum.
+  [[ ! "${version_key}" < "${minimum_key}" ]]
 }
 
 mode_default_migration_needed() {
@@ -644,7 +646,7 @@ version_sort_key() {
 }
 
 fetch_release_notes() {
-  curl -fsSL "${RELEASE_NOTES_URL}"
+  curl -fsSL --connect-timeout 15 --max-time 60 --retry 3 --retry-delay 2 "${RELEASE_NOTES_URL}"
 }
 
 available_v6_downloads() {
@@ -688,7 +690,7 @@ latest_v6_version() {
     version="$(extract_version_from_url "${line}")"
     key="$(version_sort_key "${version}")"
     printf '%s\t%s\n' "${key}" "${version}"
-  done <<<"${urls}" | sort -u | sort | tail -n 1 | awk -F '\t' '{print $2}'
+  done <<<"${urls}" | sort -u | tail -n 1 | awk -F '\t' '{print $2}'
 }
 
 available_arches() {
@@ -895,7 +897,7 @@ ensure_download_available() {
   local url="$1"
   local version="$2"
 
-  if curl -fsIL "${url}" >/dev/null 2>&1; then
+  if curl -fsIL --connect-timeout 15 --max-time 60 --retry 3 --retry-delay 2 "${url}" >/dev/null 2>&1; then
     return 0
   fi
 
@@ -950,7 +952,6 @@ write_config() {
   local final_mode="${MODE}"
   local existing_listen existing_psk existing_dns_ip_preference existing_dns_servers existing_egress_interface existing_mode
   local include_mode=0 has_dns_servers=0 has_egress_interface=0
-  local tmp
 
   [[ -n "${TARGET_VERSION}" ]] || die "target version is required before writing config"
 
@@ -985,86 +986,94 @@ write_config() {
   [[ -n "${final_dns_servers}" ]] && has_dns_servers=1
   [[ -n "${final_egress_interface}" ]] && has_egress_interface=1
 
-  tmp="$(mktemp)"
-  if [[ -f "${CONFIG_FILE}" ]]; then
-    awk \
-      -v listen="${final_listen}" \
-      -v psk="${final_psk}" \
-      -v mode="${final_mode}" \
-      -v include_mode="${include_mode}" \
-      -v dns_ip_preference="${final_dns_ip_preference}" \
-      -v dns_servers="${final_dns_servers}" \
-      -v has_dns_servers="${has_dns_servers}" \
-      -v egress_interface="${final_egress_interface}" \
-      -v has_egress_interface="${has_egress_interface}" '
-        function is_section_header(line) {
-          return line ~ /^[[:space:]]*\[[^]]+\][[:space:]]*$/
-        }
-        function is_snell_server_header(line) {
-          return line ~ /^[[:space:]]*\[snell-server\][[:space:]]*$/
-        }
-        function is_managed_key(line) {
-          return line ~ /^[[:space:]]*(listen|psk|mode|dns-ip-preference|dns|egress-interface)[[:space:]]*=/
-        }
-        function print_managed_keys() {
-          print "listen = " listen
-          print "psk = " psk
-          if (include_mode == 1) {
-            print "mode = " mode
-          }
-          print "dns-ip-preference = " dns_ip_preference
-          if (has_dns_servers == 1) {
-            print "dns = " dns_servers
-          }
-          if (has_egress_interface == 1) {
-            print "egress-interface = " egress_interface
-          }
-        }
-        is_snell_server_header($0) {
-          seen_snell_server = 1
-          in_snell_server = 1
-          print
-          print_managed_keys()
-          next
-        }
-        is_section_header($0) {
-          in_snell_server = 0
-        }
-        in_snell_server && is_managed_key($0) {
-          next
-        }
-        {
-          print
-        }
-        END {
-          if (seen_snell_server != 1) {
-            print "[snell-server]"
-            print_managed_keys()
-          }
-        }
-      ' "${CONFIG_FILE}" >"${tmp}"
-  else
-    {
-      printf '[snell-server]\n'
-      printf 'listen = %s\n' "${final_listen}"
-      printf 'psk = %s\n' "${final_psk}"
-      if [[ "${include_mode}" -eq 1 ]]; then
-        printf 'mode = %s\n' "${final_mode}"
-      fi
-      printf 'dns-ip-preference = %s\n' "${final_dns_ip_preference}"
-      if [[ "${has_dns_servers}" -eq 1 ]]; then
-        printf 'dns = %s\n' "${final_dns_servers}"
-      fi
-      if [[ "${has_egress_interface}" -eq 1 ]]; then
-        printf 'egress-interface = %s\n' "${final_egress_interface}"
-      fi
-    } >"${tmp}"
-  fi
-
   install -d -m 755 "${CONF_DIR}"
   backup_config_file
-  install -m 640 -o root -g "${RUN_GROUP}" "${tmp}" "${CONFIG_FILE}"
-  rm -f "${tmp}"
+
+  # Build the config in a subshell so the temp file is removed on any exit,
+  # including a set -e abort, while backup_config_file's global state stays
+  # in the parent shell for rollback.
+  (
+    local tmp
+    tmp="$(mktemp)"
+    trap 'rm -f -- "${tmp}"' EXIT
+
+    if [[ -f "${CONFIG_FILE}" ]]; then
+      awk \
+        -v listen="${final_listen}" \
+        -v psk="${final_psk}" \
+        -v mode="${final_mode}" \
+        -v include_mode="${include_mode}" \
+        -v dns_ip_preference="${final_dns_ip_preference}" \
+        -v dns_servers="${final_dns_servers}" \
+        -v has_dns_servers="${has_dns_servers}" \
+        -v egress_interface="${final_egress_interface}" \
+        -v has_egress_interface="${has_egress_interface}" '
+          function is_section_header(line) {
+            return line ~ /^[[:space:]]*\[[^]]+\][[:space:]]*$/
+          }
+          function is_snell_server_header(line) {
+            return line ~ /^[[:space:]]*\[snell-server\][[:space:]]*$/
+          }
+          function is_managed_key(line) {
+            return line ~ /^[[:space:]]*(listen|psk|mode|dns-ip-preference|dns|egress-interface)[[:space:]]*=/
+          }
+          function print_managed_keys() {
+            print "listen = " listen
+            print "psk = " psk
+            if (include_mode == 1) {
+              print "mode = " mode
+            }
+            print "dns-ip-preference = " dns_ip_preference
+            if (has_dns_servers == 1) {
+              print "dns = " dns_servers
+            }
+            if (has_egress_interface == 1) {
+              print "egress-interface = " egress_interface
+            }
+          }
+          is_snell_server_header($0) {
+            seen_snell_server = 1
+            in_snell_server = 1
+            print
+            print_managed_keys()
+            next
+          }
+          is_section_header($0) {
+            in_snell_server = 0
+          }
+          in_snell_server && is_managed_key($0) {
+            next
+          }
+          {
+            print
+          }
+          END {
+            if (seen_snell_server != 1) {
+              print "[snell-server]"
+              print_managed_keys()
+            }
+          }
+        ' "${CONFIG_FILE}" >"${tmp}"
+    else
+      {
+        printf '[snell-server]\n'
+        printf 'listen = %s\n' "${final_listen}"
+        printf 'psk = %s\n' "${final_psk}"
+        if [[ "${include_mode}" -eq 1 ]]; then
+          printf 'mode = %s\n' "${final_mode}"
+        fi
+        printf 'dns-ip-preference = %s\n' "${final_dns_ip_preference}"
+        if [[ "${has_dns_servers}" -eq 1 ]]; then
+          printf 'dns = %s\n' "${final_dns_servers}"
+        fi
+        if [[ "${has_egress_interface}" -eq 1 ]]; then
+          printf 'egress-interface = %s\n' "${final_egress_interface}"
+        fi
+      } >"${tmp}"
+    fi
+
+    install -m 640 -o root -g "${RUN_GROUP}" "${tmp}" "${CONFIG_FILE}"
+  )
   created=1
 
   if [[ "${created}" -eq 1 ]]; then
@@ -1073,10 +1082,11 @@ write_config() {
   fi
 }
 
-write_service_file() {
+write_service_file() (
   local tmp backup=""
 
   tmp="$(mktemp)"
+  trap 'rm -f -- "${tmp}"' EXIT
   cat >"${tmp}" <<EOF
 [Unit]
 Description=Snell v6 Server
@@ -1103,8 +1113,7 @@ EOF
   fi
 
   install -D -m 644 "${tmp}" "${SERVICE_FILE}"
-  rm -f "${tmp}"
-}
+)
 
 download_and_install_release() {
   local url="$1"
@@ -1118,7 +1127,7 @@ download_and_install_release() {
     trap 'rm -rf -- "$tmpdir"' EXIT
 
     log "downloading ${url}"
-    curl -fsSL -o "${tmpdir}/snell.zip" "${url}"
+    curl -fsSL --connect-timeout 15 --max-time 300 --retry 3 --retry-delay 2 -o "${tmpdir}/snell.zip" "${url}"
     unzip -oq "${tmpdir}/snell.zip" -d "${tmpdir}"
 
     [[ -f "${tmpdir}/snell-server" ]] || die "downloaded archive did not contain snell-server"

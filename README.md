@@ -106,7 +106,7 @@ Snell `v6.0.0b3+` adds a server mode (set with `MODE`). The server and client mo
 
 On first install with `v6.0.0b3+`, the script asks for the mode interactively (defaults to `default`). When migrating an older config to `v6.0.0b3+`, it backs up the config and writes `mode = default` explicitly. To change the mode on an installed server, use `CONFIG_OVERWRITE=1 MODE=...`.
 
-Minimum client versions: **Surge iOS** `5.102.0 (3731)`+ and **Surge macOS** `6.7.0-11380`+ for `v6.0.0b3`. `v6.0.0b4` fixes UDP in `unshaped` / `unsafe-raw` modes and needs **Surge iOS** TestFlight `5.102.0 (3743)`+.
+`mode` requires a Snell-v6-capable Surge client. For the minimum client build per Snell version, see the [official Snell release notes](https://kb.nssurge.com/surge-knowledge-base/release-notes/snell).
 
 <details>
 <summary>Config file reference</summary>

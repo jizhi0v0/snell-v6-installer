@@ -106,7 +106,7 @@ Snell `v6.0.0b3+` 新增了服务器模式（用 `MODE` 设置）。服务端和
 
 首次安装 `v6.0.0b3+` 时脚本会交互式询问模式（默认 `default`）。从旧配置升级到 `v6.0.0b3+` 时会先备份配置，再显式写入 `mode = default`。要修改已安装服务的模式，使用 `CONFIG_OVERWRITE=1 MODE=...`。
 
-最低客户端版本：`v6.0.0b3` 需 **Surge iOS** `5.102.0 (3731)`+、**Surge macOS** `6.7.0-11380`+。`v6.0.0b4` 修复了 `unshaped` / `unsafe-raw` 模式下 UDP 无法使用的问题，需 **Surge iOS** TestFlight `5.102.0 (3743)`+。
+`mode` 需要支持 Snell v6 的 Surge 客户端。各 Snell 版本所需的最低客户端版本，请查阅[官方发布记录](https://kb.nssurge.com/surge-knowledge-base/release-notes/snell)。
 
 <details>
 <summary>配置文件参考</summary>

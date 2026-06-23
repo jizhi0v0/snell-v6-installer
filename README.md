@@ -28,7 +28,7 @@ curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/sn
 
 - **Safe upgrades & rollbacks** — the runtime path `/opt/snell/bin/snell-server-v6` is a symlink; real binaries live under `/opt/snell/releases/`. Upgrades just repoint the symlink, so the old binary is always there to roll back to.
 - **Your config is preserved** — existing settings (PSK, listen, DNS, custom keys like `shadow-tls`) survive updates untouched.
-- **Smart version resolution** — omit `VERSION` and it finds the latest v6 build for your CPU; refuses accidental downgrades by default.
+- **Smart version resolution** — omit `VERSION` and it finds the latest v6 build for your CPU, cross-checking a built-in list of known builds against the download server so a freshly published beta (like `v6.0.0b4`) is picked up even before the official release-notes page lists it; refuses accidental downgrades by default.
 - **Future-proof** — works with any official v6 build that follows upstream naming, from `v6.0.0b1` through future stable releases like `v6.0.0`.
 
 <details>
@@ -57,11 +57,12 @@ The script can auto-install `curl` and `unzip` on `apt`, `dnf`, and `yum` system
 
 ## Configuration
 
-Pass options as environment variables, e.g. `sudo env VERSION=v6.0.0b3 MODE=unshaped ./snell-v6.sh`.
+Pass options as environment variables, e.g. `sudo env VERSION=v6.0.0b4 MODE=unshaped ./snell-v6.sh`.
 
 | Variable | What it does | Default |
 | --- | --- | --- |
-| `VERSION` | Target build, e.g. `v6.0.0b3` or `v6.0.0` | latest detected v6 |
+| `VERSION` | Target build, e.g. `v6.0.0b4` or `v6.0.0` | latest detected v6 |
+| `SNELL_V6_KNOWN_VERSIONS` | Curated builds the auto-resolver verifies when the release notes lag | `v6.0.0b1`…`b4` |
 | `ARCH` | CPU override: `amd64`, `i386`, `aarch64` (aliases: `x86_64`, `i686`, `arm64`) | auto-detect |
 | `PORT` | Listen port (first install only) | `7177` |
 | `PSK` | Pre-shared key (first install only) | random 32-char hex |
@@ -84,8 +85,11 @@ Read-only helpers that don't change anything:
 ./snell-v6.sh latest                       # latest detected v6 version
 ./snell-v6.sh installed                     # currently installed version
 ./snell-v6.sh download-url                  # resolved download URL
-VERSION=v6.0.0b3 ./snell-v6.sh arches       # CPU packages available for a version
+VERSION=v6.0.0b4 ./snell-v6.sh arches       # CPU packages available for a version
 ```
+
+> [!NOTE]
+> `VERSION=auto`, `latest`, and `arches` resolve from the official release notes **and** a curated list of known builds (`SNELL_V6_KNOWN_VERSIONS`), verifying each candidate against the download server. A just-published build such as `v6.0.0b4` is found even while the release-notes page still lags. If upstream ships something newer than both sources, pin `VERSION` explicitly (and add it to `SNELL_V6_KNOWN_VERSIONS`).
 
 ## Server modes
 
@@ -102,7 +106,7 @@ Snell `v6.0.0b3+` adds a server mode (set with `MODE`). The server and client mo
 
 On first install with `v6.0.0b3+`, the script asks for the mode interactively (defaults to `default`). When migrating an older config to `v6.0.0b3+`, it backs up the config and writes `mode = default` explicitly. To change the mode on an installed server, use `CONFIG_OVERWRITE=1 MODE=...`.
 
-Minimum client versions for `v6.0.0b3`: **Surge iOS** `5.102.0 (3731)`+, **Surge macOS** `6.7.0-11380`+.
+Minimum client versions: **Surge iOS** `5.102.0 (3731)`+ and **Surge macOS** `6.7.0-11380`+ for `v6.0.0b3`. `v6.0.0b4` fixes UDP in `unshaped` / `unsafe-raw` modes and needs **Surge iOS** TestFlight `5.102.0 (3743)`+.
 
 <details>
 <summary>Config file reference</summary>
@@ -134,10 +138,10 @@ Snell-V6 = snell, your-server-ip-or-domain, 7177, psk=the-psk-from-config, versi
 
 ```bash
 # Install a specific beta
-sudo env VERSION=v6.0.0b3 ./snell-v6.sh
+sudo env VERSION=v6.0.0b4 ./snell-v6.sh
 
 # Install for a specific CPU
-sudo env VERSION=v6.0.0b3 ARCH=aarch64 ./snell-v6.sh
+sudo env VERSION=v6.0.0b4 ARCH=aarch64 ./snell-v6.sh
 
 # Custom port and PSK on first install
 sudo env PORT=7177 PSK='replace-with-your-own-psk' ./snell-v6.sh
@@ -152,7 +156,7 @@ sudo env DNS_IP_PREFERENCE=prefer-ipv4 ./snell-v6.sh
 sudo env CONFIG_OVERWRITE=1 MODE=unshaped ./snell-v6.sh
 
 # Unattended install (no prompt)
-sudo env ASSUME_YES=1 VERSION=v6.0.0b3 ./snell-v6.sh
+sudo env ASSUME_YES=1 VERSION=v6.0.0b4 ./snell-v6.sh
 
 # Intentional downgrade
 sudo env VERSION=v6.0.0b2 ALLOW_DOWNGRADE=1 ./snell-v6.sh

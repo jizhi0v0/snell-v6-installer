@@ -661,6 +661,62 @@ test_binary_rollback() (
   assert_eq "${previous}" "$(readlink "${CURRENT_BIN}")" "rollback should restore the previous binary symlink"
 )
 
+test_auto_resolves_curated_beta_when_notes_lag() (
+  ARCH=amd64
+  VERSION=auto
+  source_installer_functions
+  SNELL_V6_KNOWN_VERSIONS="v6.0.0b3 v6.0.0b4"
+  fetch_release_notes() {
+    printf '%s\n' \
+      'https://dl.nssurge.com/snell/snell-server-v6.0.0b3-linux-amd64.zip' \
+      'https://dl.nssurge.com/snell/snell-server-v6.0.0b3-linux-aarch64.zip'
+  }
+  remote_url_exists() {
+    case "$1" in
+      *snell-server-v6.0.0b4-linux-amd64.zip) return 0 ;;
+      *snell-server-v6.0.0b4-linux-aarch64.zip) return 0 ;;
+      *) return 1 ;;
+    esac
+  }
+
+  assert_eq "v6.0.0b4" "$(latest_v6_version)" "auto should resolve the curated beta when notes lag"
+  assert_eq "https://dl.nssurge.com/snell/snell-server-v6.0.0b4-linux-amd64.zip" "$(latest_v6_url)" \
+    "latest url should use the curated beta for the current arch"
+  assert_eq "v6.0.0b4: aarch64 amd64" "$(VERSION=v6.0.0b4 available_arches)" \
+    "arches should list only the verified curated arches"
+)
+
+test_auto_ignores_curated_beta_that_is_not_published() (
+  ARCH=amd64
+  VERSION=auto
+  source_installer_functions
+  SNELL_V6_KNOWN_VERSIONS="v6.0.0b3 v6.0.0b4 v6.0.0b5"
+  fetch_release_notes() {
+    printf '%s\n' 'https://dl.nssurge.com/snell/snell-server-v6.0.0b3-linux-amd64.zip'
+  }
+  remote_url_exists() { return 1; }
+
+  assert_eq "v6.0.0b3" "$(latest_v6_version)" "unpublished curated builds must be ignored"
+  assert_eq "https://dl.nssurge.com/snell/snell-server-v6.0.0b3-linux-amd64.zip" "$(latest_v6_url)" \
+    "latest url should fall back to the release-notes build"
+)
+
+test_auto_falls_back_to_curated_when_notes_unavailable() (
+  ARCH=amd64
+  VERSION=auto
+  source_installer_functions
+  SNELL_V6_KNOWN_VERSIONS="v6.0.0b3 v6.0.0b4"
+  fetch_release_notes() { return 1; }
+  remote_url_exists() {
+    case "$1" in
+      *snell-server-v6.0.0b4-linux-amd64.zip) return 0 ;;
+      *) return 1 ;;
+    esac
+  }
+
+  assert_eq "v6.0.0b4" "$(latest_v6_version)" "should fall back to the curated list when notes are unreachable"
+)
+
 main() {
   test_version_ordering
   test_bilingual_relation_labels
@@ -688,6 +744,9 @@ main() {
   test_downgrade_guard
   test_config_restore_after_failed_restart
   test_binary_rollback
+  test_auto_resolves_curated_beta_when_notes_lag
+  test_auto_ignores_curated_beta_that_is_not_published
+  test_auto_falls_back_to_curated_when_notes_unavailable
 
   printf 'snell-v6 regression tests passed\n'
 }

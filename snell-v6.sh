@@ -19,6 +19,20 @@ RUN_GROUP="${RUN_GROUP:-snell}"
 RELEASE_NOTES_URL="${RELEASE_NOTES_URL:-https://kb.nssurge.com/surge-knowledge-base/release-notes/snell.md}"
 DOWNLOAD_BASE_URL="${DOWNLOAD_BASE_URL:-https://dl.nssurge.com/snell}"
 
+# Curated list of known Snell v6 builds, space separated, oldest to newest. The
+# official release-notes page sometimes lags behind the download server after a
+# new beta ships, so these entries let VERSION=auto/latest/arches resolve a
+# published build before the notes page lists it. Every candidate is verified
+# against the download server before use, so not-yet-published or removed builds
+# are ignored. Append new builds here (and in the README) as upstream ships them.
+SNELL_V6_KNOWN_VERSIONS="${SNELL_V6_KNOWN_VERSIONS:-v6.0.0b1 v6.0.0b2 v6.0.0b3 v6.0.0b4}"
+
+# CPU arches probed when verifying curated builds against the download server.
+SNELL_V6_SUPPORTED_ARCHES="${SNELL_V6_SUPPORTED_ARCHES:-amd64 i386 aarch64 armv7l}"
+
+# Seconds to wait when checking whether a download URL exists.
+URL_CHECK_TIMEOUT="${URL_CHECK_TIMEOUT:-15}"
+
 VERSION="${VERSION:-auto}"
 PORT_EXPLICIT=0
 if [[ -n "${PORT+x}" && -n "${PORT:-}" ]]; then
@@ -73,8 +87,10 @@ Actions:
 
 Environment variables:
   VERSION=auto              Detect the latest v6 release from official release notes.
-  VERSION=v6.0.0b3         Install a specific beta build; b1/b2/b3/future betas are supported when published.
+  VERSION=v6.0.0b4         Install a specific beta build; b1/b2/b3/b4/future betas are supported when published.
   VERSION=v6.0.0           Install a specific stable build.
+  SNELL_V6_KNOWN_VERSIONS   Space-separated curated builds the auto resolver verifies
+                            against the download server when the release notes lag.
   ARCH=auto                 Detect CPU arch automatically.
   ARCH=amd64                Override CPU arch. Also accepts x86_64, i386, arm64, aarch64, armv7l.
   PORT=7177                Listen port for first install, or with CONFIG_OVERWRITE=1.
@@ -649,11 +665,75 @@ fetch_release_notes() {
   curl -fsSL --connect-timeout 15 --max-time 60 --retry 3 --retry-delay 2 "${RELEASE_NOTES_URL}"
 }
 
-available_v6_downloads() {
+remote_url_exists() {
+  curl -fsIL -o /dev/null \
+    --connect-timeout 15 --max-time "${URL_CHECK_TIMEOUT}" --retry 2 --retry-delay 1 \
+    "$1" >/dev/null 2>&1
+}
+
+release_notes_v6_downloads() {
   fetch_release_notes \
     | grep -Eo 'https://dl\.nssurge\.com/snell/snell-server-v6[^[:space:]]*-linux-[[:alnum:]]+\.zip' \
     | sort -u \
     || true
+}
+
+max_version_key_from_urls() {
+  local urls="$1"
+  local line version key max=""
+
+  [[ -n "${urls}" ]] || return 0
+
+  while IFS= read -r line; do
+    [[ -n "${line}" ]] || continue
+    version="$(extract_version_from_url "${line}")"
+    [[ -n "${version}" ]] || continue
+    key="$(version_sort_key "${version}" 2>/dev/null)" || continue
+    if [[ -z "${max}" || "${key}" > "${max}" ]]; then
+      max="${key}"
+    fi
+  done <<<"${urls}"
+
+  printf '%s' "${max}"
+}
+
+curated_v6_downloads() {
+  local notes_max_key="$1"
+  local version key arch url
+  local IFS=$' \t\n'
+
+  for version in ${SNELL_V6_KNOWN_VERSIONS}; do
+    key="$(version_sort_key "${version}" 2>/dev/null)" || continue
+    # Skip builds the release notes already cover; only probe newer ones.
+    if [[ -n "${notes_max_key}" ]] && ! [[ "${key}" > "${notes_max_key}" ]]; then
+      continue
+    fi
+    for arch in ${SNELL_V6_SUPPORTED_ARCHES}; do
+      url="${DOWNLOAD_BASE_URL}/snell-server-${version}-linux-${arch}.zip"
+      if remote_url_exists "${url}"; then
+        printf '%s\n' "${url}"
+      fi
+    done
+  done
+}
+
+available_v6_downloads() {
+  local notes notes_max curated
+
+  if [[ -z "${_AVAILABLE_V6_DOWNLOADS_CACHE+x}" ]]; then
+    notes="$(release_notes_v6_downloads)"
+    notes_max="$(max_version_key_from_urls "${notes}")"
+    curated="$(curated_v6_downloads "${notes_max}")"
+    _AVAILABLE_V6_DOWNLOADS_CACHE="$(
+      printf '%s\n%s\n' "${notes}" "${curated}" \
+        | grep -E '^https://' \
+        | sort -u \
+        || true
+    )"
+  fi
+
+  [[ -n "${_AVAILABLE_V6_DOWNLOADS_CACHE}" ]] && printf '%s\n' "${_AVAILABLE_V6_DOWNLOADS_CACHE}"
+  return 0
 }
 
 extract_arch_from_url() {
@@ -897,7 +977,7 @@ ensure_download_available() {
   local url="$1"
   local version="$2"
 
-  if curl -fsIL --connect-timeout 15 --max-time 60 --retry 3 --retry-delay 2 "${url}" >/dev/null 2>&1; then
+  if remote_url_exists "${url}"; then
     return 0
   fi
 

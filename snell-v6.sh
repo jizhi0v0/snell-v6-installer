@@ -21,11 +21,11 @@ DOWNLOAD_BASE_URL="${DOWNLOAD_BASE_URL:-https://dl.nssurge.com/snell}"
 
 # Curated list of known Snell v6 builds, space separated, oldest to newest. The
 # official release-notes page sometimes lags behind the download server after a
-# new beta ships, so these entries let VERSION=auto/latest/arches resolve a
+# new prerelease ships, so these entries let VERSION=auto/latest/arches resolve a
 # published build before the notes page lists it. Every candidate is verified
 # against the download server before use, so not-yet-published or removed builds
 # are ignored. Append new builds here (and in the README) as upstream ships them.
-SNELL_V6_KNOWN_VERSIONS="${SNELL_V6_KNOWN_VERSIONS:-v6.0.0b1 v6.0.0b2 v6.0.0b3 v6.0.0b4}"
+SNELL_V6_KNOWN_VERSIONS="${SNELL_V6_KNOWN_VERSIONS:-v6.0.0b1 v6.0.0b2 v6.0.0b3 v6.0.0b4 v6.0.0rc}"
 
 # CPU arches probed when verifying curated builds against the download server.
 SNELL_V6_SUPPORTED_ARCHES="${SNELL_V6_SUPPORTED_ARCHES:-amd64 i386 aarch64 armv7l}"
@@ -87,7 +87,8 @@ Actions:
 
 Environment variables:
   VERSION=auto              Detect the latest v6 release from official release notes.
-  VERSION=v6.0.0b4         Install a specific beta build; b1/b2/b3/b4/future betas are supported when published.
+  VERSION=v6.0.0b4         Install a specific beta build.
+  VERSION=v6.0.0rc.2       Install an RC build; rc, rc.1, rc.2, and later numeric RCs are supported.
   VERSION=v6.0.0           Install a specific stable build.
   SNELL_V6_KNOWN_VERSIONS   Space-separated curated builds the auto resolver verifies
                             against the download server when the release notes lag.
@@ -648,7 +649,17 @@ version_sort_key() {
     return 0
   fi
 
-  if [[ "${version}" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+  if [[ "${version}" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)rc\.([0-9]+)$ ]]; then
+    printf '%09d.%09d.%09d.%01d.%09d' \
+      "${BASH_REMATCH[1]}" \
+      "${BASH_REMATCH[2]}" \
+      "${BASH_REMATCH[3]}" \
+      "1" \
+      "${BASH_REMATCH[4]}"
+    return 0
+  fi
+
+  if [[ "${version}" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)rc$ ]]; then
     printf '%09d.%09d.%09d.%01d.%09d' \
       "${BASH_REMATCH[1]}" \
       "${BASH_REMATCH[2]}" \
@@ -658,7 +669,17 @@ version_sort_key() {
     return 0
   fi
 
-  die "unsupported version format: ${version}"
+  if [[ "${version}" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+    printf '%09d.%09d.%09d.%01d.%09d' \
+      "${BASH_REMATCH[1]}" \
+      "${BASH_REMATCH[2]}" \
+      "${BASH_REMATCH[3]}" \
+      "2" \
+      "0"
+    return 0
+  fi
+
+  die "unsupported version format: ${version}; expected vX.Y.ZbN, vX.Y.Zrc, vX.Y.Zrc.N, or vX.Y.Z"
 }
 
 fetch_release_notes() {

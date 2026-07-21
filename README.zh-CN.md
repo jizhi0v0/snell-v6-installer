@@ -28,8 +28,8 @@ curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/sn
 
 - **安全升级与回滚**——运行入口 `/opt/snell/bin/snell-server-v6` 是软链接，真实二进制按版本保存在 `/opt/snell/releases/`。升级只切换软链接，旧版本始终保留，随时可回滚。
 - **保留你的配置**——更新时已有设置（PSK、监听、DNS、`shadow-tls` 等自定义项）原样保留。
-- **智能版本解析**——不指定 `VERSION` 时自动找到当前 CPU 可用的最新 v6，并用内置的已知版本清单到下载服务器逐一校验，因此刚发布的 beta（如 `v6.0.0b4`）即使官方 release notes 页面还没收录也能被识别；默认拒绝误降级。
-- **面向未来**——支持任何沿用官方命名的 v6 构建，从 `v6.0.0b1` 到未来的正式版（如 `v6.0.0`）。
+- **智能版本解析**——不指定 `VERSION` 时自动找到当前 CPU 可用的最新 v6，并用内置的已知版本清单到下载服务器逐一校验，因此刚发布的 beta 或 RC（如 `v6.0.0rc`）即使官方 release notes 页面还没收录也能被识别；默认拒绝误降级。
+- **面向未来**——支持沿用官方命名的 v6 beta、RC/RC.N 和正式版，从 `v6.0.0b1` 到 `v6.0.0rc.2`、`v6.0.0` 等版本。
 
 <details>
 <summary>脚本具体做了什么</summary>
@@ -57,12 +57,12 @@ curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/sn
 
 ## 配置项
 
-通过环境变量传入，例如 `sudo env VERSION=v6.0.0b4 MODE=unshaped ./snell-v6.sh`。
+通过环境变量传入，例如 `sudo env VERSION=v6.0.0rc MODE=unshaped ./snell-v6.sh`。
 
 | 变量 | 作用 | 默认值 |
 | --- | --- | --- |
-| `VERSION` | 目标版本，如 `v6.0.0b4` 或 `v6.0.0` | 自动解析最新 v6 |
-| `SNELL_V6_KNOWN_VERSIONS` | 自动解析时校验的内置已知版本清单，用于 release notes 落后时兜底 | `v6.0.0b1`…`b4` |
+| `VERSION` | 目标版本，如 `v6.0.0b4`、`v6.0.0rc`、`v6.0.0rc.2` 或 `v6.0.0` | 自动解析最新 v6 |
+| `SNELL_V6_KNOWN_VERSIONS` | 自动解析时校验的内置已知版本清单，用于 release notes 落后时兜底 | `v6.0.0b1`…`b4`、`v6.0.0rc` |
 | `ARCH` | 指定 CPU：`amd64`、`i386`、`aarch64`（别名：`x86_64`、`i686`、`arm64`） | 自动识别 |
 | `PORT` | 监听端口（仅首次安装生效） | `7177` |
 | `PSK` | 预共享密钥（仅首次安装生效） | 随机 32 位十六进制 |
@@ -85,11 +85,11 @@ curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/sn
 ./snell-v6.sh latest                       # 解析到的最新 v6 版本
 ./snell-v6.sh installed                     # 当前已安装版本
 ./snell-v6.sh download-url                  # 解析后的下载 URL
-VERSION=v6.0.0b4 ./snell-v6.sh arches       # 某版本提供的 CPU 包
+VERSION=v6.0.0rc ./snell-v6.sh arches        # 某版本提供的 CPU 包
 ```
 
 > [!NOTE]
-> `VERSION=auto`、`latest`、`arches` 会从官方 release notes **和**内置已知版本清单（`SNELL_V6_KNOWN_VERSIONS`）两处解析，并逐一到下载服务器校验。因此即使 release notes 页面还落后，刚发布的版本（如 `v6.0.0b4`）也能被识别。如果上游发布的版本比两处来源都新，请显式指定 `VERSION`（并把它加入 `SNELL_V6_KNOWN_VERSIONS`）。
+> `VERSION=auto`、`latest`、`arches` 会从官方 release notes **和**内置已知版本清单（`SNELL_V6_KNOWN_VERSIONS`）两处解析，并逐一到下载服务器校验。因此即使 release notes 页面还落后，刚发布的版本（如 `v6.0.0rc`）也能被识别。版本顺序支持 beta、无编号 RC、带编号 RC 和正式版，例如 `v6.0.0b4 < v6.0.0rc < v6.0.0rc.1 < v6.0.0rc.2 < v6.0.0`。如果上游发布的版本比两处来源都新，请显式指定 `VERSION`（并把它加入 `SNELL_V6_KNOWN_VERSIONS`）。
 
 ## 服务模式
 
@@ -137,11 +137,14 @@ Snell-V6 = snell, 你的IP或域名, 7177, psk=配置文件里的PSK, version=6
 ## 常用示例
 
 ```bash
-# 安装指定 beta
-sudo env VERSION=v6.0.0b4 ./snell-v6.sh
+# 安装指定 RC
+sudo env VERSION=v6.0.0rc ./snell-v6.sh
+
+# 也支持带编号的 RC
+sudo env VERSION=v6.0.0rc.2 ./snell-v6.sh
 
 # 为指定 CPU 安装
-sudo env VERSION=v6.0.0b4 ARCH=aarch64 ./snell-v6.sh
+sudo env VERSION=v6.0.0rc ARCH=aarch64 ./snell-v6.sh
 
 # 首次安装指定端口和 PSK
 sudo env PORT=7177 PSK='replace-with-your-own-psk' ./snell-v6.sh
@@ -156,7 +159,7 @@ sudo env DNS_IP_PREFERENCE=prefer-ipv4 ./snell-v6.sh
 sudo env CONFIG_OVERWRITE=1 MODE=unshaped ./snell-v6.sh
 
 # 无人值守安装（无提示）
-sudo env ASSUME_YES=1 VERSION=v6.0.0b4 ./snell-v6.sh
+sudo env ASSUME_YES=1 VERSION=v6.0.0rc ./snell-v6.sh
 
 # 有意降级
 sudo env VERSION=v6.0.0b2 ALLOW_DOWNGRADE=1 ./snell-v6.sh

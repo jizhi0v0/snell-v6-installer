@@ -25,7 +25,7 @@ DOWNLOAD_BASE_URL="${DOWNLOAD_BASE_URL:-https://dl.nssurge.com/snell}"
 # published build before the notes page lists it. Every candidate is verified
 # against the download server before use, so not-yet-published or removed builds
 # are ignored. Append new builds here (and in the README) as upstream ships them.
-SNELL_V6_KNOWN_VERSIONS="${SNELL_V6_KNOWN_VERSIONS:-v6.0.0b1 v6.0.0b2 v6.0.0b3 v6.0.0b4 v6.0.0rc}"
+SNELL_V6_KNOWN_VERSIONS="${SNELL_V6_KNOWN_VERSIONS:-v6.0.0b1 v6.0.0b2 v6.0.0b3 v6.0.0b4 v6.0.0rc v6.0.0rc2}"
 
 # CPU arches probed when verifying curated builds against the download server.
 SNELL_V6_SUPPORTED_ARCHES="${SNELL_V6_SUPPORTED_ARCHES:-amd64 i386 aarch64 armv7l}"
@@ -88,7 +88,7 @@ Actions:
 Environment variables:
   VERSION=auto              Detect the latest v6 release from official release notes.
   VERSION=v6.0.0b4         Install a specific beta build.
-  VERSION=v6.0.0rc.2       Install an RC build; rc, rc.1, rc.2, and later numeric RCs are supported.
+  VERSION=v6.0.0rc2        Install a numbered RC build. Legacy rc.2 input is normalized to rc2.
   VERSION=v6.0.0           Install a specific stable build.
   SNELL_V6_KNOWN_VERSIONS   Space-separated curated builds the auto resolver verifies
                             against the download server when the release notes lag.
@@ -649,7 +649,7 @@ version_sort_key() {
     return 0
   fi
 
-  if [[ "${version}" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)rc\.([0-9]+)$ ]]; then
+  if [[ "${version}" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)rc\.?([0-9]+)$ ]]; then
     printf '%09d.%09d.%09d.%01d.%09d' \
       "${BASH_REMATCH[1]}" \
       "${BASH_REMATCH[2]}" \
@@ -679,7 +679,18 @@ version_sort_key() {
     return 0
   fi
 
-  die "unsupported version format: ${version}; expected vX.Y.ZbN, vX.Y.Zrc, vX.Y.Zrc.N, or vX.Y.Z"
+  die "unsupported version format: ${version}; expected vX.Y.ZbN, vX.Y.Zrc, vX.Y.ZrcN, vX.Y.Zrc.N (legacy alias), or vX.Y.Z"
+}
+
+canonical_version() {
+  local version="$1"
+
+  if [[ "${version}" =~ ^(v[0-9]+\.[0-9]+\.[0-9]+rc)\.([0-9]+)$ ]]; then
+    printf '%s%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+    return 0
+  fi
+
+  printf '%s\n' "${version}"
 }
 
 fetch_release_notes() {
@@ -763,7 +774,7 @@ extract_arch_from_url() {
 }
 
 latest_v6_url() {
-  local urls line version key
+  local urls line version key ranked=""
 
   urls="$(
     available_v6_downloads \
@@ -775,13 +786,15 @@ latest_v6_url() {
   while IFS= read -r line; do
     [[ -n "${line}" ]] || continue
     version="$(extract_version_from_url "${line}")"
-    key="$(version_sort_key "${version}")"
-    printf '%s\t%s\t%s\n' "${key}" "${version}" "${line}"
-  done <<<"${urls}" | sort | tail -n 1 | awk -F '\t' '{print $3}'
+    key="$(version_sort_key "${version}")" || return 1
+    ranked+="${key}"$'\t'"${version}"$'\t'"${line}"$'\n'
+  done <<<"${urls}"
+
+  sort <<<"${ranked}" | tail -n 1 | awk -F '\t' '{print $3}'
 }
 
 latest_v6_version() {
-  local urls line version key
+  local urls line version key ranked=""
 
   urls="$(available_v6_downloads)"
   [[ -n "${urls}" ]] || die "no Snell v6 downloads found in release notes"
@@ -789,9 +802,11 @@ latest_v6_version() {
   while IFS= read -r line; do
     [[ -n "${line}" ]] || continue
     version="$(extract_version_from_url "${line}")"
-    key="$(version_sort_key "${version}")"
-    printf '%s\t%s\n' "${key}" "${version}"
-  done <<<"${urls}" | sort -u | tail -n 1 | awk -F '\t' '{print $2}'
+    key="$(version_sort_key "${version}")" || return 1
+    ranked+="${key}"$'\t'"${version}"$'\n'
+  done <<<"${urls}"
+
+  sort -u <<<"${ranked}" | tail -n 1 | awk -F '\t' '{print $2}'
 }
 
 available_arches() {
@@ -800,6 +815,8 @@ available_arches() {
 
   if [[ "${version}" == "auto" ]]; then
     version="$(latest_v6_version)"
+  else
+    version="$(canonical_version "${version}")"
   fi
 
   arches="$(
@@ -818,12 +835,16 @@ available_arches() {
 }
 
 resolve_download_url() {
+  local version
+
   if [[ "${VERSION}" == "auto" ]]; then
     latest_v6_url
     return 0
   fi
 
-  printf '%s/snell-server-%s-linux-%s.zip\n' "${DOWNLOAD_BASE_URL}" "${VERSION}" "${ARCH}"
+  version="$(canonical_version "${VERSION}")"
+  version_sort_key "${version}" >/dev/null
+  printf '%s/snell-server-%s-linux-%s.zip\n' "${DOWNLOAD_BASE_URL}" "${version}" "${ARCH}"
 }
 
 resolve_version() {

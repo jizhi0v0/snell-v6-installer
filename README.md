@@ -29,7 +29,7 @@ curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/sn
 - **Safe upgrades & rollbacks** — the runtime path `/opt/snell/bin/snell-server-v6` is a symlink; real binaries live under `/opt/snell/releases/`. Upgrades just repoint the symlink, so the old binary is always there to roll back to.
 - **Your config is preserved** — existing settings (PSK, listen, DNS, custom keys like `shadow-tls`) survive updates untouched.
 - **Smart version resolution** — omit `VERSION` and it finds the latest v6 build for your CPU, cross-checking a built-in list of known builds against the download server so a freshly published beta or release candidate (like `v6.0.0rc`) is picked up even before the official release-notes page lists it; refuses accidental downgrades by default.
-- **Future-proof** — works with official beta, RC/RC.N, and stable v6 builds that follow upstream naming, from `v6.0.0b1` through releases like `v6.0.0rc.2` and `v6.0.0`.
+- **Future-proof** — works with official beta, RC/RCN, and stable v6 builds that follow upstream naming, from `v6.0.0b1` through releases like `v6.0.0rc2` and `v6.0.0`.
 
 <details>
 <summary>What it does, step by step</summary>
@@ -61,8 +61,8 @@ Pass options as environment variables, e.g. `sudo env VERSION=v6.0.0rc MODE=unsh
 
 | Variable | What it does | Default |
 | --- | --- | --- |
-| `VERSION` | Target build, e.g. `v6.0.0b4`, `v6.0.0rc`, `v6.0.0rc.2`, or `v6.0.0` | latest detected v6 |
-| `SNELL_V6_KNOWN_VERSIONS` | Curated builds the auto-resolver verifies when the release notes lag | `v6.0.0b1`…`b4`, `v6.0.0rc` |
+| `VERSION` | Target build, e.g. `v6.0.0b4`, `v6.0.0rc`, `v6.0.0rc2`, or `v6.0.0` (`rc.2` is accepted as a legacy alias) | latest detected v6 |
+| `SNELL_V6_KNOWN_VERSIONS` | Curated builds the auto-resolver verifies when the release notes lag | `v6.0.0b1`…`b4`, `v6.0.0rc`, `v6.0.0rc2` |
 | `ARCH` | CPU override: `amd64`, `i386`, `aarch64` (aliases: `x86_64`, `i686`, `arm64`) | auto-detect |
 | `PORT` | Listen port (first install only) | `7177` |
 | `PSK` | Pre-shared key (first install only) | random 32-char hex |
@@ -89,7 +89,7 @@ VERSION=v6.0.0rc ./snell-v6.sh arches        # CPU packages available for a vers
 ```
 
 > [!NOTE]
-> `VERSION=auto`, `latest`, and `arches` resolve from the official release notes **and** a curated list of known builds (`SNELL_V6_KNOWN_VERSIONS`), verifying each candidate against the download server. A just-published build such as `v6.0.0rc` is found even while the release-notes page still lags. Version ordering supports beta, unnumbered RC, numbered RC, and stable builds—for example, `v6.0.0b4 < v6.0.0rc < v6.0.0rc.1 < v6.0.0rc.2 < v6.0.0`. If upstream ships something newer than both sources, pin `VERSION` explicitly (and add it to `SNELL_V6_KNOWN_VERSIONS`).
+> `VERSION=auto`, `latest`, and `arches` resolve from the official release notes **and** a curated list of known builds (`SNELL_V6_KNOWN_VERSIONS`), verifying each candidate against the download server. A just-published build such as `v6.0.0rc2` is found even while the release-notes page still lags. Version ordering supports beta, unnumbered RC, numbered RC, and stable builds—for example, `v6.0.0b4 < v6.0.0rc < v6.0.0rc1 < v6.0.0rc2 < v6.0.0`. If upstream ships something newer than both sources, pin `VERSION` explicitly (and add it to `SNELL_V6_KNOWN_VERSIONS`).
 
 ## Server modes
 
@@ -141,7 +141,7 @@ Snell-V6 = snell, your-server-ip-or-domain, 7177, psk=the-psk-from-config, versi
 sudo env VERSION=v6.0.0rc ./snell-v6.sh
 
 # Numbered release candidates are supported too
-sudo env VERSION=v6.0.0rc.2 ./snell-v6.sh
+sudo env VERSION=v6.0.0rc2 ./snell-v6.sh
 
 # Install for a specific CPU
 sudo env VERSION=v6.0.0rc ARCH=aarch64 ./snell-v6.sh

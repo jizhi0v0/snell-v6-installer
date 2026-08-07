@@ -132,14 +132,15 @@ test_version_ordering() (
   source_installer_functions
 
   assert_eq "update" "$(version_relation v6.0.0b4 v6.0.0rc)" "RC should sort after same-base beta"
-  assert_eq "update" "$(version_relation v6.0.0rc v6.0.0rc.1)" "numbered RC should sort after unnumbered RC"
-  assert_eq "update" "$(version_relation v6.0.0rc.1 v6.0.0rc.2)" "RC sequence should sort numerically"
-  assert_eq "update" "$(version_relation v6.0.0rc.2 v6.0.0rc.10)" "multi-digit RC sequence should sort numerically"
-  assert_eq "update" "$(version_relation v6.0.0rc.2 v6.0.0)" "stable should sort after same-base RC"
-  assert_eq "downgrade" "$(version_relation v6.0.0 v6.0.0rc.2)" "RC should sort before same-base stable"
+  assert_eq "update" "$(version_relation v6.0.0rc v6.0.0rc1)" "numbered RC should sort after unnumbered RC"
+  assert_eq "update" "$(version_relation v6.0.0rc1 v6.0.0rc2)" "RC sequence should sort numerically"
+  assert_eq "update" "$(version_relation v6.0.0rc2 v6.0.0rc10)" "multi-digit RC sequence should sort numerically"
+  assert_eq "reinstall" "$(version_relation v6.0.0rc.2 v6.0.0rc2)" "legacy dotted RC should equal the official format"
+  assert_eq "update" "$(version_relation v6.0.0rc2 v6.0.0)" "stable should sort after same-base RC"
+  assert_eq "downgrade" "$(version_relation v6.0.0 v6.0.0rc2)" "RC should sort before same-base stable"
   assert_eq "update" "$(version_relation v6.0.0b2 v6.0.0)" "stable should sort after same-base beta"
   assert_eq "downgrade" "$(version_relation v6.0.0 v6.0.0b2)" "beta should sort before same-base stable"
-  assert_eq "reinstall" "$(version_relation v6.0.0rc.2 v6.0.0rc.2)" "same numbered RC should be reinstall"
+  assert_eq "reinstall" "$(version_relation v6.0.0rc2 v6.0.0rc2)" "same numbered RC should be reinstall"
   assert_eq "reinstall" "$(version_relation v6.0.0b2 v6.0.0b2)" "same version should be reinstall"
 )
 
@@ -199,7 +200,7 @@ test_mode_validation_and_version_gate() (
   if (validate_mode raw) >/dev/null 2>&1; then fail "invalid mode should be rejected"; fi
   version_supports_mode v6.0.0b3
   version_supports_mode v6.0.0rc
-  version_supports_mode v6.0.0rc.2
+  version_supports_mode v6.0.0rc2
   version_supports_mode v6.0.0
   if (version_supports_mode v6.0.0b2) >/dev/null 2>&1; then fail "beta2 should not support mode"; fi
 )
@@ -704,17 +705,42 @@ test_auto_resolves_numbered_release_candidate_from_notes() (
     printf '%s\n' \
       'https://dl.nssurge.com/snell/snell-server-v6.0.0b4-linux-amd64.zip' \
       'https://dl.nssurge.com/snell/snell-server-v6.0.0rc-linux-amd64.zip' \
-      'https://dl.nssurge.com/snell/snell-server-v6.0.0rc.1-linux-amd64.zip' \
-      'https://dl.nssurge.com/snell/snell-server-v6.0.0rc.2-linux-amd64.zip' \
-      'https://dl.nssurge.com/snell/snell-server-v6.0.0rc.2-linux-aarch64.zip'
+      'https://dl.nssurge.com/snell/snell-server-v6.0.0rc1-linux-amd64.zip' \
+      'https://dl.nssurge.com/snell/snell-server-v6.0.0rc2-linux-amd64.zip' \
+      'https://dl.nssurge.com/snell/snell-server-v6.0.0rc2-linux-aarch64.zip'
   }
   remote_url_exists() { return 1; }
 
-  assert_eq "v6.0.0rc.2" "$(latest_v6_version)" "auto should select the highest numbered RC"
-  assert_eq "https://dl.nssurge.com/snell/snell-server-v6.0.0rc.2-linux-amd64.zip" "$(latest_v6_url)" \
+  assert_eq "v6.0.0rc2" "$(latest_v6_version)" "auto should select the highest numbered RC"
+  assert_eq "https://dl.nssurge.com/snell/snell-server-v6.0.0rc2-linux-amd64.zip" "$(latest_v6_url)" \
     "latest URL should use the highest numbered RC for the current arch"
-  assert_eq "v6.0.0rc.2: aarch64 amd64" "$(VERSION=v6.0.0rc.2 available_arches)" \
+  assert_eq "v6.0.0rc2: aarch64 amd64" "$(VERSION=v6.0.0rc2 available_arches)" \
     "arches should list packages for a numbered RC"
+  assert_eq "v6.0.0rc2: aarch64 amd64" "$(VERSION=v6.0.0rc.2 available_arches)" \
+    "arches should normalize a legacy dotted RC alias"
+)
+
+test_numbered_release_candidate_download_url_alias() (
+  ARCH=amd64
+  VERSION=v6.0.0rc.2
+  source_installer_functions
+
+  assert_eq "https://dl.nssurge.com/snell/snell-server-v6.0.0rc2-linux-amd64.zip" "$(resolve_download_url)" \
+    "legacy dotted RC input should resolve to the official package name"
+)
+
+test_latest_fails_for_unknown_release_format() (
+  ARCH=amd64
+  VERSION=auto
+  source_installer_functions
+  fetch_release_notes() {
+    printf '%s\n' 'https://dl.nssurge.com/snell/snell-server-v6.0.0preview1-linux-amd64.zip'
+  }
+  remote_url_exists() { return 1; }
+
+  if (latest_v6_url) >/dev/null 2>&1; then
+    fail "latest should fail instead of silently falling back when a release format is unknown"
+  fi
 )
 
 test_auto_ignores_curated_beta_that_is_not_published() (
@@ -777,6 +803,8 @@ main() {
   test_binary_rollback
   test_auto_resolves_curated_beta_when_notes_lag
   test_auto_resolves_numbered_release_candidate_from_notes
+  test_numbered_release_candidate_download_url_alias
+  test_latest_fails_for_unknown_release_format
   test_auto_ignores_curated_beta_that_is_not_published
   test_auto_falls_back_to_curated_when_notes_unavailable
 

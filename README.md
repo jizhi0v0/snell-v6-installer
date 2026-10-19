@@ -2,7 +2,7 @@
 
 [中文说明](README.zh-CN.md)
 
-> One-command **install, update, and uninstall** for Snell v6 on `systemd` Linux VPS hosts.
+> One-command **install, update, and uninstall** for Snell v6 on `systemd` Linux VPS hosts and Apple Silicon Macs (`launchd`).
 > Keeps your existing config, and stores versioned binaries for safe upgrades and instant rollbacks.
 
 ## Quick start
@@ -13,7 +13,7 @@ Install or update to the latest Snell v6 with a single command:
 curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | sudo bash
 ```
 
-That's it. The script auto-detects your CPU, downloads the latest build, writes a config, creates a `systemd` service, and starts it.
+That's it. The script auto-detects your CPU, downloads the latest build, writes a config, creates a `systemd` (Linux) or `launchd` (macOS) service, and starts it.
 
 Uninstall just as easily:
 
@@ -38,7 +38,7 @@ curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/sn
 - Downloads the requested Snell v6 build
 - Creates `/opt/snell/releases`, `/opt/snell/bin`, and `/opt/snell/conf`
 - Writes `/opt/snell/conf/snell-server-v6.conf` (if missing)
-- Creates and starts the `snell-v6` systemd service
+- Creates and starts the `snell-v6` systemd service (launchd on macOS)
 
 **Later updates**
 - Downloads the new build into `/opt/snell/releases`
@@ -50,10 +50,28 @@ curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/sn
 
 ## Requirements
 
-- Linux VPS with `systemd` and `glibc`
-- `root` or `sudo`
+- Linux VPS with `systemd` and `glibc`, or macOS on Apple Silicon (arm64)
+- `root` or `sudo`; macOS user mode runs without sudo
 
 The script can auto-install `curl` and `unzip` on `apt`, `dnf`, and `yum` systems.
+
+## macOS (Apple Silicon)
+
+With `sudo`, the installer creates a system LaunchDaemon under `/Library/LaunchDaemons/com.snell.snell-v6.plist`. It uses `/opt/snell`, runs as the existing `nobody` account, and starts at boot.
+
+For a user LaunchAgent that starts at login, run without sudo:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | env SERVICE_SCOPE=user bash
+```
+
+User mode installs into `~/Library/Application Support/snell-v6`, writes `~/Library/LaunchAgents/com.snell.snell-v6.plist`, and runs as the current user. Keep `SERVICE_SCOPE=user` when updating, querying `installed`, or uninstalling:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6-uninstall.sh | env SERVICE_SCOPE=user bash
+```
+
+Both modes log to `snell.log` in the install directory. macOS firewall settings are unchanged, and no system accounts are created or deleted. User mode requires a logged-in macOS GUI session. Intel Macs are unsupported. The `arm64` / `aarch64` aliases select `macOS-arm64` on macOS and `linux-aarch64` on Linux.
 
 ## Configuration
 
@@ -61,8 +79,10 @@ Pass options as environment variables, e.g. `sudo env VERSION=v6.0.0rc MODE=unsh
 
 | Variable | What it does | Default |
 | --- | --- | --- |
+| `SERVICE_SCOPE` | macOS service scope: `system` (sudo) or `user` (no sudo) | `system` |
+| `PLATFORM` | Platform override for read-only queries: `linux` or `macOS`; installation must match host | host OS |
 | `VERSION` | Target build, e.g. `v6.0.0b4`, `v6.0.0rc`, `v6.0.0rc2`, or `v6.0.0` (`rc.2` is accepted as a legacy alias) | latest detected v6 |
-| `SNELL_V6_KNOWN_VERSIONS` | Curated builds the auto-resolver verifies when the release notes lag | `v6.0.0b1`…`b4`, `v6.0.0rc`, `v6.0.0rc2` |
+| `SNELL_V6_KNOWN_VERSIONS` | Curated builds the auto-resolver verifies when the release notes lag | `v6.0.0b1`…`b4`, `v6.0.0rc`, `v6.0.0rc2`, `v6.0.0` |
 | `ARCH` | CPU override: `amd64`, `i386`, `aarch64` (aliases: `x86_64`, `i686`, `arm64`) | auto-detect |
 | `PORT` | Listen port (first install only) | `7177` |
 | `PSK` | Pre-shared key (first install only) | random 32-char hex |
@@ -203,7 +223,7 @@ curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/sn
 
 The script is conservative by design:
 
-- **Configs are preserved** by default; it may normalize ownership/mode to `root:snell 640` so the service can read it.
+- **Configs are preserved** by default; it may normalize ownership/mode for the service (`root:snell 640` on Linux; owner-only `600` in macOS user mode).
 - **Backups before rewrites** — `CONFIG_OVERWRITE=1` and service-file replacement create timestamped backups first. If the service can't restart with a rewritten config, the previous config is restored.
 - **Validated writes** — listen ports must be `1`–`65535`; already-listening ports are rejected before any download or service change; IPv6 listen values are rejected when IPv6 looks disabled on the host.
 - **Binary rollback** — if the service fails to restart on a new binary, the symlink is rolled back to the previous version.

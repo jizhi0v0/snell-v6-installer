@@ -5,6 +5,37 @@ IFS=$'\n\t'
 
 SCRIPT_NAME="$(basename "$0")"
 
+# PLATFORM may be set for read-only package queries; apply checks the host.
+PLATFORM="${PLATFORM:-$(uname -s)}"
+case "${PLATFORM}" in
+  Linux|linux) PLATFORM=linux ;;
+  Darwin|macOS) PLATFORM=macOS ;;
+  *) printf 'Unsupported platform: %s\n' "${PLATFORM}" >&2; exit 1 ;;
+esac
+SERVICE_SCOPE="${SERVICE_SCOPE:-system}"
+FILE_OWNER=root
+CONFIG_MODE=640
+if [[ "${PLATFORM}" == macOS ]]; then
+  SERVICE_LABEL="${SERVICE_LABEL:-com.snell.${SERVICE_NAME:-snell-v6}}"
+  if [[ "${SERVICE_SCOPE}" == user ]]; then
+    INSTALL_ROOT="${INSTALL_ROOT:-${HOME}/Library/Application Support/snell-v6}"
+    SERVICE_FILE="${SERVICE_FILE:-${HOME}/Library/LaunchAgents/${SERVICE_LABEL}.plist}"
+    RUN_USER="${RUN_USER:-$(id -un)}"
+    RUN_GROUP="${RUN_GROUP:-$(id -gn)}"
+    FILE_OWNER="$(id -un)"
+    CONFIG_MODE=600
+    LAUNCH_DOMAIN="gui/$(id -u)"
+  else
+    SERVICE_FILE="${SERVICE_FILE:-/Library/LaunchDaemons/${SERVICE_LABEL}.plist}"
+    RUN_USER="${RUN_USER:-nobody}"
+    RUN_GROUP="${RUN_GROUP:-nobody}"
+    LAUNCH_DOMAIN=system
+  fi
+fi
+[[ "${SERVICE_SCOPE}" == system || ( "${PLATFORM}" == macOS && "${SERVICE_SCOPE}" == user ) ]] || {
+  printf 'SERVICE_SCOPE must be system, or user on macOS\n' >&2; exit 1;
+}
+
 INSTALL_ROOT="${INSTALL_ROOT:-/opt/snell}"
 RELEASES_DIR="${RELEASES_DIR:-${INSTALL_ROOT}/releases}"
 BIN_DIR="${BIN_DIR:-${INSTALL_ROOT}/bin}"
@@ -25,10 +56,14 @@ DOWNLOAD_BASE_URL="${DOWNLOAD_BASE_URL:-https://dl.nssurge.com/snell}"
 # published build before the notes page lists it. Every candidate is verified
 # against the download server before use, so not-yet-published or removed builds
 # are ignored. Append new builds here (and in the README) as upstream ships them.
-SNELL_V6_KNOWN_VERSIONS="${SNELL_V6_KNOWN_VERSIONS:-v6.0.0b1 v6.0.0b2 v6.0.0b3 v6.0.0b4 v6.0.0rc v6.0.0rc2}"
+SNELL_V6_KNOWN_VERSIONS="${SNELL_V6_KNOWN_VERSIONS:-v6.0.0b1 v6.0.0b2 v6.0.0b3 v6.0.0b4 v6.0.0rc v6.0.0rc2 v6.0.0}"
 
 # CPU arches probed when verifying curated builds against the download server.
-SNELL_V6_SUPPORTED_ARCHES="${SNELL_V6_SUPPORTED_ARCHES:-amd64 i386 aarch64 armv7l}"
+if [[ "${PLATFORM}" == macOS ]]; then
+  SNELL_V6_SUPPORTED_ARCHES="${SNELL_V6_SUPPORTED_ARCHES:-arm64}"
+else
+  SNELL_V6_SUPPORTED_ARCHES="${SNELL_V6_SUPPORTED_ARCHES:-amd64 i386 aarch64 armv7l}"
+fi
 
 # Seconds to wait when checking whether a download URL exists.
 URL_CHECK_TIMEOUT="${URL_CHECK_TIMEOUT:-15}"
@@ -86,6 +121,8 @@ Actions:
   help          Show this help.
 
 Environment variables:
+  SERVICE_SCOPE=system     macOS: system (sudo) or user (no sudo; starts at login).
+  PLATFORM=linux           linux/macOS override for queries; defaults to host OS.
   VERSION=auto              Detect the latest v6 release from official release notes.
   VERSION=v6.0.0b4         Install a specific beta build.
   VERSION=v6.0.0rc2        Install a numbered RC build. Legacy rc.2 input is normalized to rc2.
@@ -110,13 +147,23 @@ EOF
 }
 
 need_root() {
+  [[ "${PLATFORM}" == macOS && "${SERVICE_SCOPE}" == user && "${EUID}" -ne 0 ]] && return 0
   if [[ "${EUID}" -ne 0 ]]; then
     die "please run as root or with sudo"
   fi
 }
 
-need_linux() {
-  [[ "$(uname -s)" == "Linux" ]] || die "this script only supports Linux VPS hosts"
+need_platform() {
+  case "$(uname -s):${PLATFORM}" in
+    Linux:linux) ;;
+    Darwin:macOS)
+      [[ "$(uname -m)" == arm64 && "${ARCH}" == arm64 ]] || die "macOS requires Apple Silicon (arm64)"
+      [[ "${SERVICE_SCOPE}" != user || "${EUID}" -ne 0 ]] || die "run SERVICE_SCOPE=user without sudo"
+      command -v launchctl >/dev/null || die "launchctl is required"
+      return 0 ;;
+    *) die "PLATFORM does not match this host" ;;
+  esac
+  need_systemd
 }
 
 need_systemd() {
@@ -134,7 +181,11 @@ normalize_arch() {
       printf 'amd64\n'
       ;;
     aarch64|arm64)
-      printf 'aarch64\n'
+      if [[ "${PLATFORM}" == macOS ]]; then
+        printf 'arm64\n'
+      else
+        printf 'aarch64\n'
+      fi
       ;;
     armv7l|armv7)
       printf 'armv7l\n'
@@ -219,6 +270,10 @@ listen_ports() {
 ipv6_available() {
   local disabled
 
+  if [[ "${PLATFORM}" == macOS ]]; then
+    ifconfig | grep 'inet6 ' >/dev/null
+    return $?
+  fi
   [[ -e /proc/net/if_inet6 ]] || return 1
   disabled="$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null || printf '1')"
   [[ "${disabled}" != "1" ]]
@@ -482,12 +537,20 @@ port_list_contains() {
 }
 
 service_is_active() {
+  if [[ "${PLATFORM}" == macOS ]]; then
+    launchctl print "${LAUNCH_DOMAIN}/${SERVICE_LABEL}" 2>/dev/null | grep 'state = running' >/dev/null
+    return $?
+  fi
   command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet "${SERVICE_NAME}"
 }
 
 port_is_listening() {
   local port="$1"
 
+  if [[ "${PLATFORM}" == macOS ]]; then
+    lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1
+    return $?
+  fi
   if command -v ss >/dev/null 2>&1; then
     ss -H -ltn 2>/dev/null \
       | awk -v port="${port}" '{ if ($4 ~ ":" port "$") found=1 } END { exit found ? 0 : 1 }'
@@ -631,7 +694,7 @@ install_deps() {
 extract_version_from_url() {
   local url="$1"
   sed -n \
-    -e 's#.*snell-server-\(v[0-9][^-/]*\)-linux-.*#\1#p' \
+    -e 's#.*snell-server-\(v[0-9][^-/]*\)-[[:alnum:]]*-.*#\1#p' \
     -e 's#.*snell-server-\(v[0-9][^-/]*\)$#\1#p' \
     <<<"${url}"
 }
@@ -705,7 +768,7 @@ remote_url_exists() {
 
 release_notes_v6_downloads() {
   fetch_release_notes \
-    | grep -Eo 'https://dl\.nssurge\.com/snell/snell-server-v6[^[:space:]]*-linux-[[:alnum:]]+\.zip' \
+    | grep -Eo "https://dl\\.nssurge\\.com/snell/snell-server-v6[^[:space:]]*-${PLATFORM}-[[:alnum:]]+\\.zip" \
     | sort -u \
     || true
 }
@@ -741,7 +804,7 @@ curated_v6_downloads() {
       continue
     fi
     for arch in ${SNELL_V6_SUPPORTED_ARCHES}; do
-      url="${DOWNLOAD_BASE_URL}/snell-server-${version}-linux-${arch}.zip"
+      url="${DOWNLOAD_BASE_URL}/snell-server-${version}-${PLATFORM}-${arch}.zip"
       if remote_url_exists "${url}"; then
         printf '%s\n' "${url}"
       fi
@@ -770,7 +833,7 @@ available_v6_downloads() {
 
 extract_arch_from_url() {
   local url="$1"
-  sed -n 's#.*-linux-\([[:alnum:]]*\)\.zip#\1#p' <<<"${url}"
+  sed -n 's#.*-[[:alnum:]]*-\([[:alnum:]]*\)\.zip#\1#p' <<<"${url}"
 }
 
 latest_v6_url() {
@@ -778,7 +841,7 @@ latest_v6_url() {
 
   urls="$(
     available_v6_downloads \
-      | awk -v arch="${ARCH}" '$0 ~ "-linux-" arch "\\.zip$"'
+      | awk -v platform="${PLATFORM}" -v arch="${ARCH}" '$0 ~ "-" platform "-" arch "\\.zip$"'
   )"
 
   [[ -n "${urls}" ]] || die "no Snell v6 download found for arch ${ARCH}"
@@ -821,7 +884,7 @@ available_arches() {
 
   arches="$(
     available_v6_downloads \
-    | awk -v version="${version}" '$0 ~ "snell-server-" version "-linux-" { print }' \
+    | awk -v platform="${PLATFORM}" -v version="${version}" 'index($0, "snell-server-" version "-" platform "-") { print }' \
     | while IFS= read -r line; do
         extract_arch_from_url "${line}"
       done \
@@ -844,7 +907,7 @@ resolve_download_url() {
 
   version="$(canonical_version "${VERSION}")"
   version_sort_key "${version}" >/dev/null
-  printf '%s/snell-server-%s-linux-%s.zip\n' "${DOWNLOAD_BASE_URL}" "${version}" "${ARCH}"
+  printf '%s/snell-server-%s-%s-%s.zip\n' "${DOWNLOAD_BASE_URL}" "${version}" "${PLATFORM}" "${ARCH}"
 }
 
 resolve_version() {
@@ -863,7 +926,19 @@ current_installed_version() {
 
 current_installed_path() {
   if [[ -e "${CURRENT_BIN}" ]]; then
-    readlink -f "${CURRENT_BIN}" 2>/dev/null || true
+    if [[ "${PLATFORM}" == linux ]]; then
+      readlink -f "${CURRENT_BIN}" 2>/dev/null || true
+    elif [[ -L "${CURRENT_BIN}" ]]; then
+      local target
+      target="$(readlink "${CURRENT_BIN}")"
+      if [[ "${target}" == /* ]]; then
+        printf '%s\n' "${target}"
+      else
+        printf '%s/%s\n' "$(dirname "${CURRENT_BIN}")" "${target}"
+      fi
+    else
+      printf '%s\n' "${CURRENT_BIN}"
+    fi
   fi
 }
 
@@ -1031,6 +1106,10 @@ random_psk() {
 }
 
 ensure_service_user() {
+  if [[ "${PLATFORM}" == macOS ]]; then
+    id "${RUN_USER}" >/dev/null 2>&1 || die "macOS service user must already exist: ${RUN_USER}"
+    return 0
+  fi
   if ! getent group "${RUN_GROUP}" >/dev/null 2>&1; then
     groupadd -r "${RUN_GROUP}"
   fi
@@ -1043,8 +1122,8 @@ ensure_service_user() {
 
 ensure_config_permissions() {
   [[ -f "${CONFIG_FILE}" ]] || return 0
-  chown "root:${RUN_GROUP}" "${CONFIG_FILE}"
-  chmod 640 "${CONFIG_FILE}"
+  chown "${FILE_OWNER}:${RUN_GROUP}" "${CONFIG_FILE}"
+  chmod "${CONFIG_MODE}" "${CONFIG_FILE}"
 }
 
 config_value() {
@@ -1194,7 +1273,7 @@ write_config() {
       } >"${tmp}"
     fi
 
-    install -m 640 -o root -g "${RUN_GROUP}" "${tmp}" "${CONFIG_FILE}"
+    install -m "${CONFIG_MODE}" -o "${FILE_OWNER}" -g "${RUN_GROUP}" "${tmp}" "${CONFIG_FILE}"
   )
   created=1
 
@@ -1204,12 +1283,30 @@ write_config() {
   fi
 }
 
+xml_escape() {
+  printf '%s' "$1" | sed -e 's/\&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g' -e "s/'/\&apos;/g"
+}
+
 write_service_file() (
   local tmp backup=""
 
   tmp="$(mktemp)"
   trap 'rm -f -- "${tmp}"' EXIT
-  cat >"${tmp}" <<EOF
+  if [[ "${PLATFORM}" == macOS ]]; then
+    {
+      printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' '<plist version="1.0"><dict>'
+      printf '<key>Label</key><string>%s</string>\n' "$(xml_escape "${SERVICE_LABEL}")"
+      printf '<key>ProgramArguments</key><array><string>%s</string><string>-c</string><string>%s</string></array>\n' "$(xml_escape "${CURRENT_BIN}")" "$(xml_escape "${CONFIG_FILE}")"
+      if [[ "${SERVICE_SCOPE}" == system ]]; then
+        printf '<key>UserName</key><string>%s</string><key>GroupName</key><string>%s</string>\n' "$(xml_escape "${RUN_USER}")" "$(xml_escape "${RUN_GROUP}")"
+      fi
+      printf '%s\n' '<key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>3</integer>'
+      printf '<key>StandardOutPath</key><string>%s</string><key>StandardErrorPath</key><string>%s</string>\n' "$(xml_escape "${INSTALL_ROOT}/snell.log")" "$(xml_escape "${INSTALL_ROOT}/snell.log")"
+      printf '%s\n' '</dict></plist>'
+    } >"${tmp}"
+    plutil -lint "${tmp}" >/dev/null
+  else
+    cat >"${tmp}" <<EOF
 [Unit]
 Description=Snell v6 Server
 After=network-online.target
@@ -1227,6 +1324,7 @@ LimitNOFILE=1048576
 [Install]
 WantedBy=multi-user.target
 EOF
+  fi
 
   if [[ -f "${SERVICE_FILE}" ]] && ! cmp -s "${tmp}" "${SERVICE_FILE}"; then
     backup="${SERVICE_FILE}.bak.$(date +%Y%m%d%H%M%S)"
@@ -1234,7 +1332,8 @@ EOF
     log "backed up previous service file to ${backup}"
   fi
 
-  install -D -m 644 "${tmp}" "${SERVICE_FILE}"
+  install -d "$(dirname "${SERVICE_FILE}")"
+  install -m 644 "${tmp}" "${SERVICE_FILE}"
 )
 
 download_and_install_release() {
@@ -1255,14 +1354,21 @@ download_and_install_release() {
     [[ -f "${tmpdir}/snell-server" ]] || die "downloaded archive did not contain snell-server"
 
     install -d -m 755 "${RELEASES_DIR}" "${BIN_DIR}" "${CONF_DIR}"
-    install -m 755 "${tmpdir}/snell-server" "${release_path}"
-    validate_release_binary "${release_path}"
+    chmod 755 "${tmpdir}/snell-server"
+    validate_release_binary "${tmpdir}/snell-server"
+    # Replace the inode instead of writing into an executable that may be running.
+    local staged
+    staged="$(mktemp "${RELEASES_DIR}/.snell-stage.XXXXXX")"
+    trap 'rm -rf -- "$tmpdir"; rm -f -- "${staged}"' EXIT
+    install -m 755 "${tmpdir}/snell-server" "${staged}"
+    mv -f "${staged}" "${release_path}"
     rm -f "${CURRENT_BIN}"
     ln -s "${release_path}" "${CURRENT_BIN}"
   )
 }
 
 maybe_manage_firewall() {
+  [[ "${PLATFORM}" == macOS ]] && return 0
   local listen_port
   listen_port="$(configured_port)"
 
@@ -1303,6 +1409,29 @@ configured_port() {
 }
 
 restart_service() {
+  if [[ "${PLATFORM}" == macOS ]]; then
+    if launchctl print "${LAUNCH_DOMAIN}/${SERVICE_LABEL}" >/dev/null 2>&1; then
+      launchctl bootout "${LAUNCH_DOMAIN}/${SERVICE_LABEL}" || return 1
+    fi
+    launchctl enable "${LAUNCH_DOMAIN}/${SERVICE_LABEL}" || return 1
+    # bootout can return before launchd has finished removing the old job.
+    # Retry bootstrap briefly so immediate reinstalls do not fail with EIO.
+    local attempt output loaded=0
+    for attempt in 1 2 3 4 5; do
+      if output="$(launchctl bootstrap "${LAUNCH_DOMAIN}" "${SERVICE_FILE}" 2>&1)"; then
+        loaded=1
+        break
+      fi
+      sleep 1
+    done
+    if [[ "${loaded}" -ne 1 ]]; then
+      printf '%s\n' "${output}" >&2
+      return 1
+    fi
+    sleep 2
+    service_is_active
+    return $?
+  fi
   systemctl daemon-reload
   systemctl enable "${SERVICE_NAME}" >/dev/null
   systemctl reset-failed "${SERVICE_NAME}" >/dev/null 2>&1 || true
@@ -1327,7 +1456,9 @@ rollback_binary_after_failed_restart() {
   rm -f "${CURRENT_BIN}"
   ln -s "${previous_path}" "${CURRENT_BIN}"
   log "service restart failed; rolled binary symlink back to ${previous_path}"
-  systemctl reset-failed "${SERVICE_NAME}" >/dev/null 2>&1 || true
+  if [[ "${PLATFORM}" == linux ]]; then
+    systemctl reset-failed "${SERVICE_NAME}" >/dev/null 2>&1 || true
+  fi
   restart_service >/dev/null 2>&1 || return 1
   return 0
 }
@@ -1339,7 +1470,7 @@ restore_config_after_failed_restart() {
 
   failed_path="${CONFIG_FILE}.failed.$(date +%Y%m%d%H%M%S)"
   cp -p "${CONFIG_FILE}" "${failed_path}" 2>/dev/null || true
-  install -m 640 -o root -g "${RUN_GROUP}" "${CONFIG_BACKUP_PATH}" "${CONFIG_FILE}"
+  install -m "${CONFIG_MODE}" -o "${FILE_OWNER}" -g "${RUN_GROUP}" "${CONFIG_BACKUP_PATH}" "${CONFIG_FILE}"
   log "service restart failed; restored config from ${CONFIG_BACKUP_PATH}"
   if [[ -f "${failed_path}" ]]; then
     log "kept failed config at ${failed_path}"
@@ -1350,19 +1481,22 @@ restore_config_after_failed_restart() {
 show_summary() {
   local version="$1"
   log "installed version: ${version}"
-  log "current binary: $(readlink -f "${CURRENT_BIN}")"
+  log "current binary: $(current_installed_path)"
   log "config file: ${CONFIG_FILE}"
   log "service: ${SERVICE_NAME}"
   log "status:"
-  systemctl --no-pager --full status "${SERVICE_NAME}" || true
+  if [[ "${PLATFORM}" == macOS ]]; then
+    launchctl print "${LAUNCH_DOMAIN}/${SERVICE_LABEL}" | head -40 || true
+  else
+    systemctl --no-pager --full status "${SERVICE_NAME}" || true
+  fi
 }
 
 apply() {
   local url version previous_path config_restored=0
 
   need_root
-  need_linux
-  need_systemd
+  need_platform
   install_deps
 
   url="$(resolve_download_url)"
@@ -1384,17 +1518,17 @@ apply() {
     if restore_config_after_failed_restart; then
       config_restored=1
       if restart_service; then
-        die "service failed after config rewrite; restored the previous config; check journalctl -xeu ${SERVICE_NAME}.service"
+        die "service failed after config rewrite; restored the previous config; inspect service logs"
       fi
     fi
 
     if rollback_binary_after_failed_restart "${previous_path}"; then
       if [[ "${config_restored}" -eq 1 ]]; then
-        die "service failed after update; restored the previous config and rolled back to the previous binary; check journalctl -xeu ${SERVICE_NAME}.service"
+        die "service failed after update; restored the previous config and rolled back to the previous binary; inspect service logs"
       fi
-      die "service failed after update and was rolled back to the previous binary; check journalctl -xeu ${SERVICE_NAME}.service"
+      die "service failed after update and was rolled back to the previous binary; inspect service logs"
     fi
-    die "service failed to start; check journalctl -xeu ${SERVICE_NAME}.service"
+    die "service failed to start; inspect service logs"
   fi
 
   show_summary "${version}"
@@ -1405,7 +1539,7 @@ case "${ACTION}" in
     apply
     ;;
   latest)
-    basename "$(latest_v6_url)" | sed -n 's/^snell-server-\(v6[^-]*\)-linux-.*$/\1/p'
+    extract_version_from_url "$(latest_v6_url)"
     ;;
   arches)
     available_arches

@@ -5,6 +5,33 @@ IFS=$'\n\t'
 
 SCRIPT_NAME="$(basename "$0")"
 
+# Match the installer platform and service scope.
+PLATFORM="${PLATFORM:-$(uname -s)}"
+case "${PLATFORM}" in
+  Linux|linux) PLATFORM=linux ;;
+  Darwin|macOS) PLATFORM=macOS ;;
+  *) printf 'Unsupported platform: %s\n' "${PLATFORM}" >&2; exit 1 ;;
+esac
+SERVICE_SCOPE="${SERVICE_SCOPE:-system}"
+if [[ "${PLATFORM}" == macOS ]]; then
+  SERVICE_LABEL="${SERVICE_LABEL:-com.snell.${SERVICE_NAME:-snell-v6}}"
+  if [[ "${SERVICE_SCOPE}" == user ]]; then
+    INSTALL_ROOT="${INSTALL_ROOT:-${HOME}/Library/Application Support/snell-v6}"
+    SERVICE_FILE="${SERVICE_FILE:-${HOME}/Library/LaunchAgents/${SERVICE_LABEL}.plist}"
+    RUN_USER="${RUN_USER:-$(id -un)}"
+    RUN_GROUP="${RUN_GROUP:-$(id -gn)}"
+    LAUNCH_DOMAIN="gui/$(id -u)"
+  else
+    SERVICE_FILE="${SERVICE_FILE:-/Library/LaunchDaemons/${SERVICE_LABEL}.plist}"
+    RUN_USER="${RUN_USER:-nobody}"
+    RUN_GROUP="${RUN_GROUP:-nobody}"
+    LAUNCH_DOMAIN=system
+  fi
+fi
+[[ "${SERVICE_SCOPE}" == system || ( "${PLATFORM}" == macOS && "${SERVICE_SCOPE}" == user ) ]] || {
+  printf 'SERVICE_SCOPE must be system, or user on macOS\n' >&2; exit 1;
+}
+
 INSTALL_ROOT="${INSTALL_ROOT:-/opt/snell}"
 CONFIG_FILE="${CONFIG_FILE:-${INSTALL_ROOT}/conf/snell-server-v6.conf}"
 SERVICE_NAME="${SERVICE_NAME:-snell-v6}"
@@ -31,6 +58,7 @@ Usage:
   sudo ./snell-v6-uninstall.sh [help]
 
 Environment variables:
+  SERVICE_SCOPE=system    macOS: use user to remove a user-level installation.
   PRESERVE_CONFIG=0       Remove /opt/snell by default. Set to 1 to keep it.
   REMOVE_USER=1           Remove snell user/group when possible.
   REMOVE_UFW_RULE=auto    Delete ufw allow rule when ufw exists.
@@ -39,6 +67,7 @@ EOF
 }
 
 need_root() {
+  [[ "${PLATFORM}" == macOS && "${SERVICE_SCOPE}" == user && "${EUID}" -ne 0 ]] && return 0
   if [[ "${EUID}" -ne 0 ]]; then
     die "please run as root or with sudo"
   fi
@@ -65,6 +94,14 @@ configured_port() {
 }
 
 remove_service() {
+  if [[ "${PLATFORM}" == macOS ]]; then
+    if launchctl print "${LAUNCH_DOMAIN}/${SERVICE_LABEL}" >/dev/null 2>&1; then
+      launchctl bootout "${LAUNCH_DOMAIN}/${SERVICE_LABEL}"
+    fi
+    rm -f "${SERVICE_FILE}" "${SERVICE_FILE}".bak.*
+    log "removed launchd service ${SERVICE_LABEL}"
+    return 0
+  fi
   if command -v systemctl >/dev/null 2>&1; then
     systemctl disable --now "${SERVICE_NAME}" >/dev/null 2>&1 || true
   fi
@@ -90,6 +127,7 @@ remove_files() {
 }
 
 remove_firewall_rule() {
+  [[ "${PLATFORM}" == macOS ]] && return 0
   local port
 
   if [[ "${REMOVE_UFW_RULE}" == "0" || "${REMOVE_UFW_RULE}" == "false" || "${REMOVE_UFW_RULE}" == "no" ]]; then
@@ -107,6 +145,7 @@ remove_firewall_rule() {
 }
 
 remove_service_user() {
+  [[ "${PLATFORM}" == macOS ]] && return 0
   if [[ "${REMOVE_USER}" == "0" || "${REMOVE_USER}" == "false" || "${REMOVE_USER}" == "no" ]]; then
     return 0
   fi
@@ -118,6 +157,11 @@ remove_service_user() {
 
 case "${1:-uninstall}" in
   uninstall)
+    case "$(uname -s):${PLATFORM}" in
+      Linux:linux|Darwin:macOS) ;;
+      *) die "PLATFORM does not match this host" ;;
+    esac
+    [[ "${SERVICE_SCOPE}" != user || "${EUID}" -ne 0 ]] || die "run SERVICE_SCOPE=user without sudo"
     need_root
     remove_firewall_rule
     remove_service

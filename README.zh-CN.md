@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-> 用于 `systemd` Linux VPS 的 Snell v6 **一键安装、更新、卸载**脚本。
+> 用于 `systemd` Linux VPS 和 Apple Silicon Mac（`launchd`）的 Snell v6 **一键安装、更新、卸载**脚本。
 > 默认保留已有配置，并保存版本化二进制，方便安全升级和秒级回滚。
 
 ## 快速开始
@@ -13,7 +13,7 @@
 curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | sudo bash
 ```
 
-就这么简单。脚本会自动识别 CPU、下载最新版本、写入配置、创建并启动 `systemd` 服务。
+就这么简单。脚本会自动识别 CPU、下载最新版本、写入配置、创建并启动 Linux `systemd` 或 macOS `launchd` 服务。
 
 卸载同样只需一条命令：
 
@@ -38,7 +38,7 @@ curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/sn
 - 下载指定的 Snell v6 版本
 - 创建 `/opt/snell/releases`、`/opt/snell/bin`、`/opt/snell/conf`
 - 在不存在时写入 `/opt/snell/conf/snell-server-v6.conf`
-- 创建并启动 `snell-v6` systemd 服务（含开机自启）
+- 创建并启动 `snell-v6` systemd 服务（macOS 使用 launchd）
 
 **后续更新**
 - 下载新版本到 `/opt/snell/releases`
@@ -50,10 +50,28 @@ curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/sn
 
 ## 运行要求
 
-- 带 `systemd` 和 `glibc` 的 Linux VPS
-- `root` 或 `sudo`
+- 带 `systemd` 和 `glibc` 的 Linux VPS，或 Apple Silicon（arm64）Mac
+- `root` 或 `sudo`；macOS 用户模式无需 sudo
 
 脚本可在 `apt`、`dnf`、`yum` 系统上自动安装 `curl` 和 `unzip`。
+
+## macOS（Apple Silicon）
+
+默认使用 `sudo` 安装系统级 LaunchDaemon，路径仍为 `/opt/snell`，以系统已有的 `nobody` 用户运行，开机启动。服务文件为 `/Library/LaunchDaemons/com.snell.snell-v6.plist`。
+
+也可以不使用 sudo，安装登录后启动的用户级 LaunchAgent：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6.sh | env SERVICE_SCOPE=user bash
+```
+
+用户级安装位于 `~/Library/Application Support/snell-v6`，服务文件位于 `~/Library/LaunchAgents/com.snell.snell-v6.plist`，以当前用户运行。更新、查询 `installed` 和卸载时，需保持 `SERVICE_SCOPE=user`：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/snell-v6-uninstall.sh | env SERVICE_SCOPE=user bash
+```
+
+两种模式的日志均位于安装目录下的 `snell.log`；macOS 不自动修改防火墙，也不创建或删除系统用户。使用用户模式时须在已登录的 macOS 图形会话中运行。Intel Mac 暂不支持。macOS 的 `arm64` / `aarch64` 均映射到官方 `macOS-arm64` 包，Linux 则映射到 `linux-aarch64`。
 
 ## 配置项
 
@@ -61,8 +79,10 @@ curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/sn
 
 | 变量 | 作用 | 默认值 |
 | --- | --- | --- |
+| `SERVICE_SCOPE` | macOS 服务范围：`system`（sudo）或 `user`（无需 sudo） | `system` |
+| `PLATFORM` | 只读查询的平台覆盖：`linux` 或 `macOS`；安装必须匹配本机 | 当前系统 |
 | `VERSION` | 目标版本，如 `v6.0.0b4`、`v6.0.0rc`、`v6.0.0rc2` 或 `v6.0.0`（兼容旧写法 `rc.2`） | 自动解析最新 v6 |
-| `SNELL_V6_KNOWN_VERSIONS` | 自动解析时校验的内置已知版本清单，用于 release notes 落后时兜底 | `v6.0.0b1`…`b4`、`v6.0.0rc`、`v6.0.0rc2` |
+| `SNELL_V6_KNOWN_VERSIONS` | 自动解析时校验的内置已知版本清单，用于 release notes 落后时兜底 | `v6.0.0b1`…`b4`、`v6.0.0rc`、`v6.0.0rc2`、`v6.0.0` |
 | `ARCH` | 指定 CPU：`amd64`、`i386`、`aarch64`（别名：`x86_64`、`i686`、`arm64`） | 自动识别 |
 | `PORT` | 监听端口（仅首次安装生效） | `7177` |
 | `PSK` | 预共享密钥（仅首次安装生效） | 随机 32 位十六进制 |
@@ -203,7 +223,7 @@ curl -fsSL https://raw.githubusercontent.com/jizhi0v0/snell-v6-installer/main/sn
 
 脚本在设计上偏保守：
 
-- **默认保留配置**，可能会把权限修正为 `root:snell 640`，让 `snell` 服务用户可读。
+- **默认保留配置**，可能会修正服务读取所需的权限（Linux 为 `root:snell 640`；macOS 用户模式为仅当前用户可读写的 `600`）。
 - **重写前先备份**——`CONFIG_OVERWRITE=1` 和替换 service 文件前都会创建带时间戳的备份。若重写后服务无法重启，会恢复旧配置。
 - **写入前校验**——监听端口必须在 `1`–`65535`；已被监听的端口在下载和修改服务前就会被拒绝；本机 IPv6 不可用时拒绝 IPv6 监听配置。
 - **二进制回滚**——切换新二进制后服务重启失败时，软链接会回滚到上一个版本。
